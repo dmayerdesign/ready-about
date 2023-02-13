@@ -1,86 +1,97 @@
-import { initializeApp } from "firebase/app";
-import { doc, Firestore, getDoc, getFirestore, setDoc } from "firebase/firestore"
+import type { doc, Firestore, getDoc, setDoc, onSnapshot, DocumentReference, Unsubscribe } from "firebase/firestore"
 import { v4 } from "uuid"
-import { Game, GameState } from "./game";
+import { BoatState, Game, GameState } from "./game";
 import makeGameId from "./make-game-id";
 
 export class App {
     public game: Game | undefined
-    private _db!: Firestore
+    private _gameSnapshotUnsub!: Unsubscribe
 
     public constructor(
         private _localStorage: typeof localStorage,
+        private _getGameIdRouteParam: () => Promise<string | undefined>,
+        private _goToRoute: (route: string) => Promise<void>,
+        private _store: Firestore,
         private _doc: typeof doc,
         private _getDoc: typeof getDoc,
         private _setDoc: typeof setDoc,
-    ) {
-        const firebaseConfig = {
-            // TODO: Fill in
-        };
-        
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
+        private _onSnapshot: typeof onSnapshot,
+    ) {}
 
-        // Initialize Cloud Firestore and get a reference to the service
-        this._db = getFirestore(app);
-    }
-
-    public async createNewGame(): Promise<void> {
+    public async loadOrCreateGame(): Promise<void> {
         // Load the home screen, no game required
-        // Check for a game ID in localStorage
-        // - Look it up
-        // - If finishedAt is undefined, load it
-        // - Else, delete the finished game
-        // If no unfinished game, create new
+        // Check for a game ID in URL
+        // - Look it up — if exists, load it
+        // If no game, create new
         let initGameState: GameState | undefined
-        let gameId = this._localStorage.getItem("ready-about.game-id") || undefined
-        let resuming: boolean
-        
+        let gameId = await this._getGameIdRouteParam()
+        const gameDocRef = this._doc(this._store, "games", gameId!) as DocumentReference<GameState>
         if (gameId !== undefined && gameId != "") {
-            initGameState = (await this._getDoc(this._doc(this._db, "games", gameId!)))?.data() as GameState | undefined
+            initGameState = (await this._getDoc(gameDocRef))?.data()
         }
-
-        if (initGameState == undefined) {
-            resuming = true
-            this._localStorage.setItem("ready-about.game-id", gameId = makeGameId())
+        const resuming = initGameState != undefined
+        if (!resuming) {
+            gameId = makeGameId()
+            await this._goToRoute(gameId)
             initGameState = {
                 gameId,
                 boats: [],
                 starterBuoys: [],
                 markerBuoys: [],
                 riskSpaces: [],
-                startedAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(),
             }
-            await this._setDoc(this._doc(this._db, "games", gameId!), initGameState)
-
-            // TODO: Pick a course
-            // TODO: Pick a wind origin direction
-        } else {
-            resuming = false
+            await this._setDoc(gameDocRef, initGameState)
         }
-
-        await this.startGame(gameId!, initGameState, resuming)
+        
+        // Pick my boat
+        let boatId: string | undefined = undefined
+        if (resuming) {
+            boatId = this._localStorage.getItem("ready-about.boat-id") || undefined
+        }
+        if (boatId == undefined) {
+            boatId = v4()
+            const newBoat: BoatState = {
+                boatId,
+                hasMovedThisTurn: false,
+                remainingSpeed: 0,
+                hasFinished: false,
+                turnsCompleted: 0,
+            }
+            initGameState!.boats.push(newBoat)
+        }
+        this._localStorage.setItem("ready-about.boat-id", boatId)
+        
+        // Wait for others to join and pick their boats
+        // Click "start" or "resume" (switch on `startedAt`) once all players have joined
+        // Or it's called automatically once all players have joined an existing game
+        // Randomly pick starting player
+        if (!resuming) {
+            const randomIndexOfFirstTurn = Math.floor(Math.random() * initGameState!.boats.length - 1)
+            initGameState!.idOfBoatWhoseTurnItIs = initGameState!.boats[randomIndexOfFirstTurn].boatId
+        }
+        await this.startOrResumeGame(gameDocRef, boatId, initGameState!)
     }
 
-    public async startGame(gameId: string, initGameState: GameState, resuming = false): Promise<void> {
-        // Someone clicks this once all players have joined
-        let boatId = v4()
-        if (resuming) {
-            boatId = this._localStorage.getItem("ready-about.boat-id")!
-            // TODO: Add null check
-        } else {
-            this._localStorage.setItem("ready-about.boat-id", boatId)
+    public async startOrResumeGame(gameDocRef: DocumentReference<GameState>, boatId: string, initGameState: GameState): Promise<void> {
+        if (!initGameState.startedAt) {
+            // Pick a course (starterBuoys, markerBuoys, riskSpaces)
+            // Pick a wind origin direction
+            // Place the boats
+            // Everyone place your boat
+
         }
-        // If not yet started:
-        // - pick the first player randomly
-        const randomIndexOfFirstTurn = Math.floor(Math.random() * initGameState.boats.length - 1)
-        initGameState.idOfBoatWhoseTurnItIs = initGameState.boats[randomIndexOfFirstTurn].boatId
-        // - Then everyone is prompted to:
-        //   - Choose boat (color)
-        //   - Place your boat
-        this.game = new Game(initGameState, async (newState) => {
-            await this._setDoc(this._doc(this._db, "games", gameId!), newState)
+        this.game = new Game(initGameState, boatId, async (newState) => {
+            await this._setDoc(gameDocRef, newState)
         })
+        this._gameSnapshotUnsub = this._onSnapshot(gameDocRef,
+            (snapshot) => {
+                if (snapshot?.data() !== undefined) {
+                    this.game?.syncGameUpdate(snapshot.data()!)
+                }
+            },
+            (error) => console.error(error)
+        )
     }
 
     public async joinGame(): Promise<void> {
@@ -90,5 +101,6 @@ export class App {
 
     public async endGame(): Promise<void> {
         // Prompt for confirmation, then delete the game
+        this._gameSnapshotUnsub()
     }
 }

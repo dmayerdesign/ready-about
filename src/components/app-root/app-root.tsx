@@ -17,7 +17,10 @@ export class AppRoot {
           <stencil-router>
             <stencil-route-switch scrollTopOffset={0}>
               <stencil-route url="/" component="app-home" exact={true} />
-              <stencil-route url="/profile/:name" component="app-profile" />
+              <stencil-route url="/play/:gameId" component="app-game" />
+              <stencil-route url="/*">
+                <stencil-router-redirect url="/" />
+              </stencil-route>
             </stencil-route-switch>
           </stencil-router>
         </main>

@@ -3,6 +3,9 @@
  * - How do we know if a boat is behind or has crossed the starting line?
  * - How do we know if a boat has rounded a buoy?
  * - How do we know which directions are toward vs away from the next buoy?
+ * 
+ * To make things easier we'll stick to some conventions, e.g. starting line is always at the bottom
+ * Also courses are always clockwise
  */
 export class Game {
     private state: GameState
@@ -10,49 +13,64 @@ export class Game {
 
     public constructor(
         initGameState: GameState,
+        myBoatId: string | undefined,
         private _updateGame: (newGameState: GameState) => Promise<void>,
     ) {
         this.state = initGameState
+        this.myBoatId = myBoatId
     }
 
-    public async runGame(): Promise<void> {
-        let gameOver = false
+    public getState(): GameState {
+        return this.state
+    }
+    public getMyBoatId(): string | undefined {
+        return this.myBoatId
+    }
+    public getMyBoat(): BoatState | undefined {
+        return this.state.boats.find(({ boatId }) => boatId == this.getMyBoatId())
+    }
 
-        while (!gameOver) {
-            // Cycle the turn
-            let thisTurnIndex = this.state.boats.findIndex(b => b.boatId === this.state.idOfBoatWhoseTurnItIs) + 1
-            if (thisTurnIndex >= this.state.boats.length) thisTurnIndex = 0
-            const boatWhoseTurnItIs = this.state.boats[thisTurnIndex]
-            this.state.idOfBoatWhoseTurnItIs = boatWhoseTurnItIs.boatId
-            // Resolve the turn
-            await this.doTurn(boatWhoseTurnItIs)
-            await this.resolveCollisions()
-            // Game is over when all but 1 boat have finished
-            gameOver = this.state.boats.filter(b => b.hasFinished).length >= this.state.boats.length - 1
+    public async syncGameUpdate(newGameState: GameState): Promise<void> {
+        const myTurnNow = this.state.idOfBoatWhoseTurnItIs !== this.myBoatId && newGameState.idOfBoatWhoseTurnItIs == this.myBoatId
+        this.state = newGameState
+        if (myTurnNow) {
+            await this.doMyTurn()
         }
     }
 
-    private async updateGame(newGameState: GameState): Promise<void> {
-        await this._updateGame(newGameState)
-        this.state = newGameState
+    public async doMyTurn(): Promise<void> {
+        let newState = { ...this.state }
+        // Alert me that it's my turn
+        // Wait for my choice
+        // Move me to chosen spot
+        // Update the boat's state
+        // e.g. set hasFinished if I crossed the starting line
+        // This is where risk spaces, etc get resolved
+
+        const gameOver = this.state.boats.filter(b => b.hasFinished).length >= this.state.boats.length - 1
+        if (gameOver) {
+            newState = { ...newState, finishedAt: new Date().toISOString() }
+        } else {
+            // If game is not over, cycle the turn
+            let thisTurnIndex = this.state.boats.findIndex(b => b.boatId === this.state.idOfBoatWhoseTurnItIs) + 1
+            if (thisTurnIndex >= this.state.boats.length) thisTurnIndex = 0
+            const boatWhoseTurnItIs = this.state.boats[thisTurnIndex]
+            newState = { ...newState, idOfBoatWhoseTurnItIs: boatWhoseTurnItIs.boatId }
+        }
+
+        await this.updateGame(newState)
+        await this.resolveCollisions()
     }
 
-    public async doTurn(boat: BoatState): Promise<void> {
-        // Alert them that it's their turn
-        // Wait for their choice
-        // Move them to their chosen spot
-        // Update the boat's state
-        // This is where risk spaces, etc get resolved
-    }
     public async resolveCollisions(): Promise<void> {
-        // If a collision happened:
+        // TODO: If a collision happened:
         // Hard: allow the boat that was collided with to move to 1 adjacent space of their choice, not closer to the next marker
         // Easier: Auto-move them 1 space downwind
     }
 
     public canIMoveThere(there: XYPosition): boolean {
         const myBoat = this.state.boats?.find(boat => boat.boatId != undefined && boat.boatId === this.myBoatId)
-        if (myBoat == undefined || this.state.windOriginDir == undefined) {
+        if (myBoat == undefined || myBoat.pos == undefined || this.state.windOriginDir == undefined) {
             return false
         }
 
@@ -70,6 +88,7 @@ export class Game {
                 return false
             }
             
+            // If myBoat.turnsCompleted < 4, I cannot move north of the starting line
             // If someone is 1 or 2 spaces upwind, subtract 1 from my speed
             // If a buoy is on the target space or on my way there, return false
             // If a risk space is on my way to the target space, return false
@@ -79,6 +98,11 @@ export class Game {
         }
     
         return false
+    }
+
+    private async updateGame(newGameState: GameState): Promise<void> {
+        await this._updateGame(newGameState)
+        this.state = newGameState
     }
 }
 
@@ -208,7 +232,7 @@ function getPointOfSailAndTack(
     ) {
         return ["broad reach", "port"]
     }
-    return ["run", boatState.tack]
+    return ["run", boatState.tack ?? "starboard"]
 }
 
 // 0,0 is bottom left
@@ -229,12 +253,14 @@ export type Direction = "W"|"NW"|"N"|"NE"|"E"|"SE"|"S"|"SW"
 export type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"
 export interface BoatState {
     boatId: string
+    color?: string
     hasMovedThisTurn: boolean
-    tack: Tack
-    pointOfSail: PointOfSail
+    tack?: Tack
+    pointOfSail?: PointOfSail
     remainingSpeed: number
-    pos: XYPosition
+    pos?: XYPosition
     hasFinished: boolean
+    turnsCompleted: number
 }
 export interface CanIMoveThereInput {
     boatState: BoatState
@@ -260,8 +286,10 @@ export interface GameState {
     starterBuoys: StarterBuoy[]
     markerBuoys: MarkerBuoy[]
     riskSpaces: RiskSpace[]
-    /** ISO date-time format */
-    startedAt: string
+    /** ISO date-time formats */
+    createdAt: string
+    /** ISO date-time formats */
+    startedAt?: string
     /** ISO date-time format */
     finishedAt?: string
 }
