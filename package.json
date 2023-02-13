@@ -15,9 +15,14 @@
     "@stencil/core": "2.13.0",
     "@types/babel__generator": "^7.6.4",
     "@types/jest": "^27.0.3",
+    "@types/uuid": "^9.0.0",
     "jest": "^27.4.5",
     "jest-cli": "^27.4.5",
     "puppeteer": "^10.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "firebase": "^9.17.1",
+    "uuid": "^9.0.0"
+  }
 }

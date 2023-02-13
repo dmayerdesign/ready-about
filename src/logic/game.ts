@@ -4,63 +4,45 @@
  * - How do we know if a boat has rounded a buoy?
  * - How do we know which directions are toward vs away from the next buoy?
  */
-// 0,0 is bottom left
-type XYPosition = [number, number]
-type Tack = "starboard"|"port"
-interface OtherPiece {
-    type: "boat"|"starterBuoy"|"markerBuoy"|"riskSpace"
-    id: string
-    xyPosition: XYPosition
-}
-interface Boat extends OtherPiece {
-    type: "boat"
-}
-interface StarterBuoy extends OtherPiece {
-    type: "starterBuoy"
-}
-interface MarkerBuoy extends OtherPiece {
-    type: "markerBuoy"
-}
-interface RiskSpace extends OtherPiece {
-    type: "riskSpace"
-}
-type Direction = "W"|"NW"|"N"|"NE"|"E"|"SE"|"S"|"SW"
-type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"
-interface BoatState {
-    boatId: string
-    hasMovedThisTurn: boolean
-    tack: Tack
-    pointOfSail: PointOfSail
-    remainingSpeed: number
-    pos: XYPosition
-    hasFinished: boolean
-}
-interface CanIMoveThereInput {
-    boatState: BoatState
-    there: XYPosition
-    windOriginDir: Direction
-    otherBoats: Boat[]
-    starterBuoys: StarterBuoy[]
-    markerBuoys: MarkerBuoy[]
-    riskSpaces: RiskSpace[]
-}
-const SPEEDS: Record<PointOfSail, number> = {
-    "beat": 1,
-    "beam reach": 2,
-    "broad reach": 2,
-    "run": 2
-}
+export class Game {
+    private state: GameState
+    private myBoatId: string | undefined
 
-export class GameMaster {
-    public boats: BoatState[] = []
-    public idOfBoatWhoseTurnItIs = ""
-    public windOriginDir: Direction = ""
+    public constructor(
+        initGameState: GameState,
+        private _updateGame: (newGameState: GameState) => Promise<void>,
+    ) {
+        this.state = initGameState
+    }
+
+    public async runGame(): Promise<void> {
+        let gameOver = false
+
+        while (!gameOver) {
+            // Cycle the turn
+            let thisTurnIndex = this.state.boats.findIndex(b => b.boatId === this.state.idOfBoatWhoseTurnItIs) + 1
+            if (thisTurnIndex >= this.state.boats.length) thisTurnIndex = 0
+            const boatWhoseTurnItIs = this.state.boats[thisTurnIndex]
+            this.state.idOfBoatWhoseTurnItIs = boatWhoseTurnItIs.boatId
+            // Resolve the turn
+            await this.doTurn(boatWhoseTurnItIs)
+            await this.resolveCollisions()
+            // Game is over when all but 1 boat have finished
+            gameOver = this.state.boats.filter(b => b.hasFinished).length >= this.state.boats.length - 1
+        }
+    }
+
+    private async updateGame(newGameState: GameState): Promise<void> {
+        await this._updateGame(newGameState)
+        this.state = newGameState
+    }
 
     public async doTurn(boat: BoatState): Promise<void> {
         // Alert them that it's their turn
         // Wait for their choice
         // Move them to their chosen spot
         // Update the boat's state
+        // This is where risk spaces, etc get resolved
     }
     public async resolveCollisions(): Promise<void> {
         // If a collision happened:
@@ -68,48 +50,36 @@ export class GameMaster {
         // Easier: Auto-move them 1 space downwind
     }
 
-    public async runGame(): Promise<void> {
-        let gameOver = false
-        const randomIndexOfFirstTurn = Math.floor(Math.random() * this.boats.length - 1)
-        this.idOfBoatWhoseTurnItIs = this.boats[randomIndexOfFirstTurn].boatId
-
-        while (!gameOver) {
-            // Cycle the turn
-            let thisTurnIndex = this.boats.findIndex(b => b.boatId === this.idOfBoatWhoseTurnItIs) + 1
-            if (thisTurnIndex >= this.boats.length) thisTurnIndex = 0
-            const boatWhoseTurnItIs = this.boats[thisTurnIndex]
-            this.idOfBoatWhoseTurnItIs = boatWhoseTurnItIs.boatId
-            // Resolve the turn
-            await this.doTurn(boatWhoseTurnItIs)
-            await this.resolveCollisions()
-            // Game is over when all but 1 boat have finished
-            gameOver = this.boats.filter(b => b.hasFinished).length >= this.boats.length - 1
-        }
-    }
-}
-
-export function canIMoveThere(input: CanIMoveThereInput): [boolean, BoatState] {
-    const newBoatState = { ...input.boatState }
-    const currentMoveDir = getCurrentMoveDir(input.boatState.pos, input.there)
-
-    if (currentMoveDir !== undefined && currentMoveDir !== input.windOriginDir) {
-        // const howFarIsThere = getDistance(input.boatState.pos, input.there)
-        const [pointOfSail, tack] = getPointOfSailAndTack(currentMoveDir, input.windOriginDir, input.boatState)
-        if (!input.boatState.hasMovedThisTurn) {
-            const didTack = tack != input.boatState.tack
-            newBoatState.remainingSpeed = didTack ? 1 : SPEEDS[pointOfSail]
+    public canIMoveThere(there: XYPosition): boolean {
+        const myBoat = this.state.boats?.find(boat => boat.boatId != undefined && boat.boatId === this.myBoatId)
+        if (myBoat == undefined || this.state.windOriginDir == undefined) {
+            return false
         }
 
-        // If someone is 1 or 2 spaces upwind, subtract 1 from my speed
-
-        // If a buoy is on the target space or on my way there, return false
-        // If a risk space is on my way to the target space, return false
-        // If a boat is on my way to the target space, return false
-        // If a boat is on the target space, return false UNLESS I have right of way
-        // - (If I have right of way, then a collision resolution needs to happen, in which the other boat picks a space to get booted to)
+        const currentMoveDir = getCurrentMoveDir(myBoat.pos, there)
+        let remainingSpeed = myBoat.remainingSpeed
+        if (currentMoveDir !== undefined && currentMoveDir !== this.state.windOriginDir) {
+            const howFarIsThere = getMoveDistance(myBoat.pos, there)
+            const [pointOfSail, tack] = getPointOfSailAndTack(currentMoveDir, this.state.windOriginDir, myBoat)
+            if (!myBoat.hasMovedThisTurn) {
+                const didTack = tack != myBoat.tack
+                remainingSpeed = didTack ? 1 : SPEEDS[pointOfSail]
+            }
+    
+            if (remainingSpeed < howFarIsThere) {
+                return false
+            }
+            
+            // If someone is 1 or 2 spaces upwind, subtract 1 from my speed
+            // If a buoy is on the target space or on my way there, return false
+            // If a risk space is on my way to the target space, return false
+            // (Remember bonus speed doesn't come into play here; risk spaces are just walls to this function)
+            // If a boat is on my way to the target space, return false
+            // If a boat is on the target space, return false UNLESS I have right of way
+        }
+    
+        return false
     }
-
-    return [false, input.boatState]
 }
 
 function getCurrentMoveDir(here: XYPosition, there: XYPosition): Direction | undefined {
@@ -152,7 +122,10 @@ function getCurrentMoveDir(here: XYPosition, there: XYPosition): Direction | und
     return undefined
 }
 
-function getDistance(here: XYPosition, there: XYPosition): number {
+/**
+ * Assumes `there` is a valid move relative to `here`, i.e. in a straight line or diagonal.
+ */
+function getMoveDistance(here: XYPosition, there: XYPosition): number {
     const deltaXAbs = Math.abs(there[0] - here[0])
     const deltaYAbs = Math.abs(there[1] - here[1])
     return Math.max(deltaXAbs, deltaYAbs)
@@ -238,3 +211,57 @@ function getPointOfSailAndTack(
     return ["run", boatState.tack]
 }
 
+// 0,0 is bottom left
+export type XYPosition = [number, number]
+export type Tack = "starboard"|"port"
+export interface OtherPiece {
+    type: "boat"|"starterBuoy"|"markerBuoy"|"riskSpace"
+    id: string
+    xyPosition: XYPosition
+}
+
+export interface Boat extends OtherPiece { type: "boat" }
+export interface StarterBuoy extends OtherPiece { type: "starterBuoy" }
+export interface MarkerBuoy extends OtherPiece { type: "markerBuoy" }
+export interface RiskSpace extends OtherPiece { type: "riskSpace" }
+
+export type Direction = "W"|"NW"|"N"|"NE"|"E"|"SE"|"S"|"SW"
+export type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"
+export interface BoatState {
+    boatId: string
+    hasMovedThisTurn: boolean
+    tack: Tack
+    pointOfSail: PointOfSail
+    remainingSpeed: number
+    pos: XYPosition
+    hasFinished: boolean
+}
+export interface CanIMoveThereInput {
+    boatState: BoatState
+    there: XYPosition
+    windOriginDir: Direction
+    otherBoats: Boat[]
+    starterBuoys: StarterBuoy[]
+    markerBuoys: MarkerBuoy[]
+    riskSpaces: RiskSpace[]
+}
+const SPEEDS: Record<PointOfSail, number> = {
+    "beat": 1,
+    "beam reach": 2,
+    "broad reach": 2,
+    "run": 2
+}
+
+export interface GameState {
+    gameId: string | undefined
+    boats: BoatState[]
+    idOfBoatWhoseTurnItIs?: string
+    windOriginDir?: Direction
+    starterBuoys: StarterBuoy[]
+    markerBuoys: MarkerBuoy[]
+    riskSpaces: RiskSpace[]
+    /** ISO date-time format */
+    startedAt: string
+    /** ISO date-time format */
+    finishedAt?: string
+}
