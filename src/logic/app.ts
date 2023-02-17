@@ -1,7 +1,6 @@
 import type { doc, Firestore, getDoc, setDoc, onSnapshot, DocumentReference, Unsubscribe } from "firebase/firestore"
 import { v4 } from "uuid"
 import { BoatState, Game, GameState } from "./game";
-import makeGameId from "./make-game-id";
 
 export class App {
     public game: Game | undefined
@@ -10,7 +9,6 @@ export class App {
     public constructor(
         private _localStorage: typeof localStorage,
         private _getGameIdRouteParam: () => Promise<string | undefined>,
-        private _goToRoute: (route: string) => Promise<void>,
         private _store: Firestore,
         private _doc: typeof doc,
         private _getDoc: typeof getDoc,
@@ -31,8 +29,6 @@ export class App {
         }
         const resuming = initGameState != undefined
         if (!resuming) {
-            gameId = makeGameId()
-            await this._goToRoute(gameId)
             initGameState = {
                 gameId,
                 boats: [],

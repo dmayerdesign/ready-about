@@ -6,7 +6,7 @@ import { App } from '../../logic/app';
 import { XYPosition } from '../../logic/game';
 
 const BOARD_SIZE = 30
-const CELL_SIZE = 20
+const CELL_SIZE_PX = 20
 
 @Component({
   tag: 'app-game',
@@ -15,7 +15,22 @@ const CELL_SIZE = 20
 })
 export class AppGame implements ComponentDidLoad {
   @Prop() public match!: MatchResults;
-  public app!: App
+  public app = new App(
+    localStorage,
+    async () => this.match.params["gameId"],
+    getFirestore(initializeFirebase({
+      apiKey: "AIzaSyCRE81HDBkOQkZYAtZYGPbJSIJpJip_CJ8",
+      authDomain: "ready-about-80b09.firebaseapp.com",
+      projectId: "ready-about-80b09",
+      storageBucket: "ready-about-80b09.appspot.com",
+      messagingSenderId: "185028746311",
+      appId: "1:185028746311:web:72de4ff2c8e16c34102562"
+    })),
+    doc,
+    getDoc,
+    setDoc,
+    onSnapshot,
+  )
 
   public normalize(name: string): string {
     if (name) {
@@ -25,23 +40,7 @@ export class AppGame implements ComponentDidLoad {
   }
 
   public componentDidLoad(): void {
-    this.app = new App(
-      localStorage,
-      async () => this.match.params["gameId"],
-      async (route) => void(window.location.href = window.location.protocol + "://" + window.location.host + "/" + route),
-      getFirestore(initializeFirebase({
-        apiKey: "AIzaSyCRE81HDBkOQkZYAtZYGPbJSIJpJip_CJ8",
-        authDomain: "ready-about-80b09.firebaseapp.com",
-        projectId: "ready-about-80b09",
-        storageBucket: "ready-about-80b09.appspot.com",
-        messagingSenderId: "185028746311",
-        appId: "1:185028746311:web:72de4ff2c8e16c34102562"
-      })),
-      doc,
-      getDoc,
-      setDoc,
-      onSnapshot,
-    )
+    this.app.loadOrCreateGame()
   }
 
   public render() {
@@ -69,7 +68,7 @@ export class AppGame implements ComponentDidLoad {
     return <div class="game-board">
       <div class="grid-layer" style={{
         position: "relative",
-        width: `${CELL_SIZE * BOARD_SIZE}px`
+        width: `${CELL_SIZE_PX * BOARD_SIZE}px`
       }}>
         {grid.map(row => <div class="row">
           {row.map(cell => <div class="cell"
@@ -102,14 +101,18 @@ export class AppGame implements ComponentDidLoad {
             position: "absolute",
             left: `${this.posToPx(boat.pos![0])}px`,
             bottom: `${this.posToPx(boat.pos![1])}px`,
-            width: "10px",
-            height: "10px",
+            width: CELL_SIZE_PX + "px",
+            height: CELL_SIZE_PX + "px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center"
           }}
         >
         </div>)}
+      </div>
+      <div class="buoys-layer">
+      </div>
+      <div class="risk-layer">
       </div>
     </div>
   }
