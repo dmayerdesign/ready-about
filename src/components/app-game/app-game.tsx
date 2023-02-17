@@ -3,6 +3,10 @@ import { Component, ComponentDidLoad, h, Prop } from '@stencil/core';
 import { initializeApp as initializeFirebase } from 'firebase/app';
 import { doc, getDoc, getFirestore, onSnapshot, setDoc } from "firebase/firestore";
 import { App } from '../../logic/app';
+import { XYPosition } from '../../logic/game';
+
+const BOARD_SIZE = 30
+const CELL_SIZE = 20
 
 @Component({
   tag: 'app-game',
@@ -26,7 +30,12 @@ export class AppGame implements ComponentDidLoad {
       async () => this.match.params["gameId"],
       async (route) => void(window.location.href = window.location.protocol + "://" + window.location.host + "/" + route),
       getFirestore(initializeFirebase({
-        // TODO: Fill in
+        apiKey: "AIzaSyCRE81HDBkOQkZYAtZYGPbJSIJpJip_CJ8",
+        authDomain: "ready-about-80b09.firebaseapp.com",
+        projectId: "ready-about-80b09",
+        storageBucket: "ready-about-80b09.appspot.com",
+        messagingSenderId: "185028746311",
+        appId: "1:185028746311:web:72de4ff2c8e16c34102562"
       })),
       doc,
       getDoc,
@@ -39,9 +48,73 @@ export class AppGame implements ComponentDidLoad {
     if (this.match && this.match.params["gameId"]) {
       return (
         <div class="app-game">
-          The game ID is: {this.app.game?.getState().gameId ?? '?'}
+          <h1></h1>
+          <p>The game ID is: {this.app.game?.getState().gameId ?? '?'}</p>
+
+          {this.renderGameBoard()}
         </div>
       );
     }
+  }
+
+  private renderGameBoard() {
+    const grid: XYPosition[][] = []
+    for (let i = 1; i <= BOARD_SIZE; i++) {
+      const row: XYPosition[] = []
+      for (let j = 1; j <= BOARD_SIZE; j++) {
+        row.push([i, j])
+      }
+      grid.push(row)
+    }
+    return <div class="game-board">
+      <div class="grid-layer" style={{
+        position: "relative",
+        width: `${CELL_SIZE * BOARD_SIZE}px`
+      }}>
+        {grid.map(row => <div class="row">
+          {row.map(cell => <div class="cell"
+            style={{
+              position: "absolute",
+              left: `${this.posToPx(cell[0])}px`,
+              bottom: `${this.posToPx(cell[1])}px`,
+              width: "10px",
+              height: "10px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+          >
+            <div class="dot"
+              style={{
+                width: "6px",
+                height: "6px",
+                color: "black",
+                borderRadius: "3px"
+              }}
+            >
+            </div>
+          </div>)}
+        </div>)}
+      </div>
+      <div class="boats-layer">
+        {this.app.game?.getState().boats.filter(boat => boat.pos).map(boat => <div class=""
+          style={{
+            position: "absolute",
+            left: `${this.posToPx(boat.pos![0])}px`,
+            bottom: `${this.posToPx(boat.pos![1])}px`,
+            width: "10px",
+            height: "10px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+        </div>)}
+      </div>
+    </div>
+  }
+
+  private posToPx(xOrY: number): number {
+    return xOrY * 10
   }
 }

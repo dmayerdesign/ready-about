@@ -16,10 +16,7 @@ export class AppHome implements ComponentDidLoad {
   public render() {
     return (
       <div class="app-home">
-        <p>
-          Welcome to the Stencil App Starter. You can use this starter to build entire apps all with web components using Stencil! Check out our docs on{' '}
-          <a href="https://stenciljs.com">stenciljs.com</a> to get started.
-        </p>
+        <h1>Ready About!</h1>
 
         <stencil-route-link url={"/" + this.newGameId}>
           <button>Start new game</button>
