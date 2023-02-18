@@ -1,21 +1,25 @@
-import { MatchResults } from '@stencil-community/router';
-import { Component, ComponentDidLoad, h, Prop } from '@stencil/core';
-import { initializeApp as initializeFirebase } from 'firebase/app';
+import { MatchResults } from "@stencil-community/router";
+import { Component, ComponentDidLoad, h, Prop, State } from "@stencil/core";
+import { initializeApp as initializeFirebase } from "firebase/app";
 import { doc, getDoc, getFirestore, onSnapshot, setDoc } from "firebase/firestore";
-import { App } from '../../logic/app';
-import { XYPosition } from '../../logic/game';
+import { App } from "../../logic/app";
+import { GameState, XYPosition } from "../../logic/game";
 
-const BOARD_SIZE = 30
+const BOARD_SIZE = 31
 const CELL_SIZE_PX = 20
 
 @Component({
-  tag: 'app-game',
-  styleUrl: 'app-game.css',
+  tag: "app-game",
+  styleUrl: "app-game.css",
   shadow: true,
 })
 export class AppGame implements ComponentDidLoad {
   @Prop() public match!: MatchResults;
+  @State() public gameState?: GameState | undefined
+  private readonly grid: XYPosition[][] = []
+
   public app = new App(
+    (gameState) => this.gameState = gameState,
     localStorage,
     async () => this.match.params["gameId"],
     getFirestore(initializeFirebase({
@@ -32,11 +36,14 @@ export class AppGame implements ComponentDidLoad {
     onSnapshot,
   )
 
-  public normalize(name: string): string {
-    if (name) {
-      return name.substring(0, 1).toUpperCase() + name.substring(1).toLowerCase();
+  public constructor() {
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      const row: XYPosition[] = []
+      for (let j = 0; j < BOARD_SIZE; j++) {
+        row.push([j, i])
+      }
+      this.grid.push(row)
     }
-    return '';
   }
 
   public componentDidLoad(): void {
@@ -47,8 +54,7 @@ export class AppGame implements ComponentDidLoad {
     if (this.match && this.match.params["gameId"]) {
       return (
         <div class="app-game">
-          <h1></h1>
-          <p>The game ID is: {this.app.game?.getState().gameId ?? '?'}</p>
+          <p>The game ID is: {this.gameState?.gameId ?? "?"}</p>
 
           {this.renderGameBoard()}
         </div>
@@ -57,24 +63,17 @@ export class AppGame implements ComponentDidLoad {
   }
 
   private renderGameBoard() {
-    const grid: XYPosition[][] = []
-    for (let i = 1; i <= BOARD_SIZE; i++) {
-      const row: XYPosition[] = []
-      for (let j = 1; j <= BOARD_SIZE; j++) {
-        row.push([j, i])
-      }
-      grid.push(row)
-    }
+    console.log('board rendered', this.gameState?.boats[0]?.remainingSpeed, this.gameState?.boats[0]?.pos)
     return <div class="game-board" style={{
       position: "relative",
-      width: `${(CELL_SIZE_PX * BOARD_SIZE) + (CELL_SIZE_PX * 2)}px`,
-      height: `${(CELL_SIZE_PX * BOARD_SIZE) + (CELL_SIZE_PX * 2)}px`,
-      boxSizing: 'content-box',
-      border: '2px solid gray',
+      width: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
+      height: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
+      boxSizing: "content-box",
+      border: "2px solid gray",
     }}>
       <div class="grid-layer">
-        {grid.map(row => <div class="row">
-          {row.map(cell => <div class="cell"
+        {this.grid.map(row => <div class="row">
+          {row.map(cell => <button class="cell"
             style={{
               position: "absolute",
               left: `${this.posToPx(cell[0])}px`,
@@ -83,23 +82,28 @@ export class AppGame implements ComponentDidLoad {
               height: CELL_SIZE_PX + "px",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center"
+              justifyContent: "center",
+              border: "none",
+              boxShadow: "none",
+              padding: "0",
+              background: "transparent"
             }}
           >
             <div class="dot"
               style={{
                 width: "6px",
                 height: "6px",
-                backgroundColor: "black",
-                borderRadius: "3px"
+                backgroundColor: this.app.game?.canIMoveThere(cell)[0] ? "red" : "black",
+                borderRadius: "3px",
               }}
+              onClick={() => {}}
             >
             </div>
-          </div>)}
+          </button>)}
         </div>)}
       </div>
       <div class="boats-layer">
-        {this.app.game?.getState().boats.filter(boat => boat.pos).map(boat => <div class=""
+        {this.gameState?.boats.filter(boat => boat.pos).map(boat => <div class="boat"
           style={{
             position: "absolute",
             left: `${this.posToPx(boat.pos![0])}px`,
@@ -108,7 +112,9 @@ export class AppGame implements ComponentDidLoad {
             height: CELL_SIZE_PX + "px",
             display: "flex",
             alignItems: "center",
-            justifyContent: "center"
+            justifyContent: "center",
+            backgroundImage: "url(/assets/boats/sunfish-1.png)",
+            backgroundSize: "cover"
           }}
         >
         </div>)}

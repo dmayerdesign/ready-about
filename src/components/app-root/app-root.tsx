@@ -14,7 +14,7 @@ export class AppRoot {
         </header>
 
         <main>
-          {/* decent example at https://github.com/khaledosman/stencil-realworld-app/blob/master/src/app-root.tsx */}
+          {/* decent example to reference at https://github.com/khaledosman/stencil-realworld-app/blob/master/src/app-root.tsx */}
           <stencil-router>
             <stencil-route-switch scrollTopOffset={0}>
               <stencil-route url="/play/:gameId" component="app-game" group="main" exact={true} />

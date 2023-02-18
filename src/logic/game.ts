@@ -18,6 +18,7 @@ export class Game {
     ) {
         this.state = initGameState
         this.myBoatId = myBoatId
+        void this._updateGame(initGameState)
     }
 
     public getState(): GameState {
@@ -40,26 +41,69 @@ export class Game {
 
     public async doMyTurn(): Promise<void> {
         let newState = { ...this.state }
-        // Alert me that it's my turn
-        // Wait for my choice
-        // Move me to chosen spot
-        // Update the boat's state
-        // e.g. set hasFinished if I crossed the starting line
-        // This is where risk spaces, etc get resolved
+        await new Promise((resolve) => {
+            // never resolve
+            document.addEventListener("keydown", this.handleKeydown)
+            // Alert me that it's my turn
+            // Wait for my choice
+            // Confirm choice
+            // Move me to chosen spot
+            // Update the boat's state
+            // - e.g. set hasFinished if I crossed the starting line
+            // - This is where risk spaces, etc get resolved
 
-        const gameOver = this.state.boats.filter(b => b.hasFinished).length >= this.state.boats.length - 1
-        if (gameOver) {
-            newState = { ...newState, finishedAt: new Date().toISOString() }
-        } else {
-            // If game is not over, cycle the turn
-            let thisTurnIndex = this.state.boats.findIndex(b => b.boatId === this.state.idOfBoatWhoseTurnItIs) + 1
-            if (thisTurnIndex >= this.state.boats.length) thisTurnIndex = 0
-            const boatWhoseTurnItIs = this.state.boats[thisTurnIndex]
-            newState = { ...newState, idOfBoatWhoseTurnItIs: boatWhoseTurnItIs.boatId }
-        }
+            const gameOver = this.state.boats.filter(b => b.hasFinished).length >= this.state.boats.length - 1
+            if (gameOver) {
+                newState = { ...newState, finishedAt: new Date().toISOString() }
+            } else {
+                // If game is not over, cycle the turn
+                let thisTurnIndex = this.state.boats.findIndex(b => b.boatId === this.state.idOfBoatWhoseTurnItIs) + 1
+                if (thisTurnIndex >= this.state.boats.length) thisTurnIndex = 0
+                const boatWhoseTurnItIs = this.state.boats[thisTurnIndex]
+                newState = { ...newState, idOfBoatWhoseTurnItIs: boatWhoseTurnItIs.boatId }
+            }
+        })
 
+        document.removeEventListener("keydown", this.handleKeydown)
         await this.updateGame(newState)
         await this.resolveCollisions()
+    }
+
+    private handleKeydown = async (event: KeyboardEvent) => {
+        const myBoat = this.getMyBoat()
+        if (myBoat && myBoat!.pos) {
+            const here = myBoat!.pos!
+            let there = here
+
+            switch (event.key) {
+                case "Up":
+                case "ArrowUp":
+                    there = [there[0], there[1] + 1]
+                    break;
+                case "Right":
+                case "ArrowRight":
+                    there = [there[0] + 1, there[1]]
+                    break;
+                case "Down":
+                case "ArrowDown":
+                    there = [there[0], there[1] - 1]
+                    break;
+                case "Left":
+                case "ArrowLeft":
+                    there = [there[0] - 1, there[1]]
+                    break;
+            }
+            const [canIMove, remainingSpeed] = this.canIMoveThere(there)
+            if (canIMove) {
+                event.preventDefault()
+                this.updateMyBoat({
+                    ...myBoat,
+                    remainingSpeed: remainingSpeed - 1,
+                    hasMovedThisTurn: true,
+                    pos: there,
+                })
+            }
+        }
     }
 
     public async resolveCollisions(): Promise<void> {
@@ -68,24 +112,30 @@ export class Game {
         // Easier: Auto-move them 1 space downwind
     }
 
-    public canIMoveThere(there: XYPosition): boolean {
+    public canIMoveThere(there: XYPosition): [boolean, number] {
         const myBoat = this.state.boats?.find(boat => boat.boatId != undefined && boat.boatId === this.myBoatId)
         if (myBoat == undefined || myBoat.pos == undefined || this.state.windOriginDir == undefined) {
-            return false
+            return [false, 0]
         }
 
+        if (there[0] == 15 && there[1] == 16) {
+            console.log('can I move?', myBoat.pos, there)
+        }
+        
         const currentMoveDir = getCurrentMoveDir(myBoat.pos, there)
         let remainingSpeed = myBoat.remainingSpeed
+
         if (currentMoveDir !== undefined && currentMoveDir !== this.state.windOriginDir) {
             const howFarIsThere = getMoveDistance(myBoat.pos, there)
             const [pointOfSail, tack] = getPointOfSailAndTack(currentMoveDir, this.state.windOriginDir, myBoat)
+
             if (!myBoat.hasMovedThisTurn) {
-                const didTack = tack != myBoat.tack
+                const didTack = myBoat.tack !== undefined && tack != myBoat.tack
                 remainingSpeed = didTack ? 1 : SPEEDS[pointOfSail]
             }
     
             if (remainingSpeed < howFarIsThere) {
-                return false
+                return [false, myBoat.remainingSpeed]
             }
             
             // If myBoat.turnsCompleted < 4, I cannot move north of the starting line
@@ -95,14 +145,31 @@ export class Game {
             // (Remember bonus speed doesn't come into play here; risk spaces are just walls to this function)
             // If a boat is on my way to the target space, return false
             // If a boat is on the target space, return false UNLESS I have right of way
+            return [true, remainingSpeed]
         }
     
-        return false
+        return [false, myBoat.remainingSpeed]
     }
 
     private async updateGame(newGameState: GameState): Promise<void> {
-        await this._updateGame(newGameState)
         this.state = newGameState
+        await this._updateGame(newGameState)
+    }
+
+    private async updateMyBoat(newBoatState: BoatState): Promise<void> {
+        const boats = [ ...this.getState().boats ]
+        const myBoat = this.getMyBoat()
+        const idxOfMyBoat = boats.findIndex(boat => boat.boatId === myBoat?.boatId)
+        const myNewBoat = {
+            ...myBoat,
+            ...newBoatState,
+        }
+        boats[idxOfMyBoat] = myNewBoat
+        const newGameState = {
+            ...this.getState(),
+            boats,
+        }
+        await this.updateGame(newGameState)
     }
 }
 
@@ -252,6 +319,7 @@ export interface RiskSpace extends OtherPiece { type: "riskSpace" }
 export type Direction = "W"|"NW"|"N"|"NE"|"E"|"SE"|"S"|"SW"
 export type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"
 export interface BoatState {
+    name: string
     boatId: string
     color?: string
     hasMovedThisTurn: boolean
