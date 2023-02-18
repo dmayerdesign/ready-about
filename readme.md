@@ -1,5 +1,10 @@
 # Developing
 
+Install dependencies:
+```bash
+npm i
+```
+
 To start locally for development:
 
 ```bash

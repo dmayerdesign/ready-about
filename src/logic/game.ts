@@ -95,6 +95,9 @@ export class Game {
             }
             const [canIMove, remainingSpeed] = this.canIMoveThere(there)
             if (canIMove) {
+                //Insert pop up "Confirm move"
+                //Preview boat
+                //window.confirm
                 event.preventDefault()
                 this.updateMyBoat({
                     ...myBoat,
