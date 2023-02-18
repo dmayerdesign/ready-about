@@ -85,9 +85,11 @@ export class AppGame implements ComponentDidLoad {
               justifyContent: "center",
               border: "none",
               boxShadow: "none",
+              outline: "none !important",
               padding: "0",
               background: "transparent"
             }}
+            onClick={() => this.app.game?.moveClick$.next(cell)}
           >
             <div class="dot"
               style={{
@@ -96,8 +98,10 @@ export class AppGame implements ComponentDidLoad {
                 backgroundColor: this.app.game?.canIMoveThere(cell)[0] ? "red" : "black",
                 borderRadius: "3px",
               }}
-              onClick={() => {}}
             >
+              <span style={{position: "absolute", display: "block", opacity: "0", width: "0", height: "0", overflow: "hidden"}}>
+                Position X {cell[0]}, Y {cell[1]}
+              </span>
             </div>
           </button>)}
         </div>)}

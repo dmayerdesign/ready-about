@@ -23,6 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "firebase": "^9.17.1",
+    "rxjs": "^7.8.0",
     "uuid": "^9.0.0"
   }
 }

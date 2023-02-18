@@ -93,7 +93,7 @@ export class App {
         this.unsubFromGameSnapshots = this._onSnapshot(gameDocRef,
             (snapshot) => {
                 if (snapshot?.data() !== undefined) {
-                    this.game?.syncGameUpdate(snapshot.data()!)
+                    this.game?.handleDbGameStateChange(snapshot.data()!)
                 }
             },
             (error) => console.error(error)
