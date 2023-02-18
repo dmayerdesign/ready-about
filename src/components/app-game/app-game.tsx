@@ -61,23 +61,26 @@ export class AppGame implements ComponentDidLoad {
     for (let i = 1; i <= BOARD_SIZE; i++) {
       const row: XYPosition[] = []
       for (let j = 1; j <= BOARD_SIZE; j++) {
-        row.push([i, j])
+        row.push([j, i])
       }
       grid.push(row)
     }
-    return <div class="game-board">
-      <div class="grid-layer" style={{
-        position: "relative",
-        width: `${CELL_SIZE_PX * BOARD_SIZE}px`
-      }}>
+    return <div class="game-board" style={{
+      position: "relative",
+      width: `${(CELL_SIZE_PX * BOARD_SIZE) + (CELL_SIZE_PX * 2)}px`,
+      height: `${(CELL_SIZE_PX * BOARD_SIZE) + (CELL_SIZE_PX * 2)}px`,
+      boxSizing: 'content-box',
+      border: '2px solid gray',
+    }}>
+      <div class="grid-layer">
         {grid.map(row => <div class="row">
           {row.map(cell => <div class="cell"
             style={{
               position: "absolute",
               left: `${this.posToPx(cell[0])}px`,
               bottom: `${this.posToPx(cell[1])}px`,
-              width: "10px",
-              height: "10px",
+              width: CELL_SIZE_PX + "px",
+              height: CELL_SIZE_PX + "px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center"
@@ -87,7 +90,7 @@ export class AppGame implements ComponentDidLoad {
               style={{
                 width: "6px",
                 height: "6px",
-                color: "black",
+                backgroundColor: "black",
                 borderRadius: "3px"
               }}
             >
@@ -118,6 +121,6 @@ export class AppGame implements ComponentDidLoad {
   }
 
   private posToPx(xOrY: number): number {
-    return xOrY * 10
+    return xOrY * CELL_SIZE_PX
   }
 }

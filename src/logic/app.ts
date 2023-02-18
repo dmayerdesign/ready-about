@@ -28,6 +28,7 @@ export class App {
             initGameState = (await this._getDoc(gameDocRef))?.data()
         }
         const resuming = initGameState != undefined
+        console.log("1 -->", { ...initGameState })
         if (!resuming) {
             initGameState = {
                 gameId,
@@ -39,6 +40,7 @@ export class App {
             }
             await this._setDoc(gameDocRef, initGameState)
         }
+        console.log("2 -->", { ...initGameState })
         
         // Pick my boat
         let boatId: string | undefined = undefined
@@ -57,13 +59,15 @@ export class App {
             initGameState!.boats.push(newBoat)
         }
         this._localStorage.setItem("ready-about.boat-id", boatId)
+
+        console.log("3 -->", boatId)
         
         // Wait for others to join and pick their boats
         // Click "start" or "resume" (switch on `startedAt`) once all players have joined
         // Or it's called automatically once all players have joined an existing game
         // Randomly pick starting player
         if (!resuming) {
-            const randomIndexOfFirstTurn = Math.floor(Math.random() * initGameState!.boats.length - 1)
+            const randomIndexOfFirstTurn = Math.floor(Math.random() * (initGameState!.boats.length - 1))
             initGameState!.idOfBoatWhoseTurnItIs = initGameState!.boats[randomIndexOfFirstTurn].boatId
         }
         await this.startOrResumeGame(gameDocRef, boatId, initGameState!)

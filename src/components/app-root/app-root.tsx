@@ -10,17 +10,15 @@ export class AppRoot {
     return (
       <div>
         <header>
-          <h1>Stencil App Starter</h1>
+          <h1>Ready About!</h1>
         </header>
 
         <main>
+          {/* decent example at https://github.com/khaledosman/stencil-realworld-app/blob/master/src/app-root.tsx */}
           <stencil-router>
             <stencil-route-switch scrollTopOffset={0}>
-              <stencil-route url="/" component="app-home" exact={true} />
-              <stencil-route url="/play/:gameId" component="app-game" />
-              <stencil-route url="/*">
-                <stencil-router-redirect url="/" />
-              </stencil-route>
+              <stencil-route url="/play/:gameId" component="app-game" group="main" exact={true} />
+              <stencil-route component="app-home" group="main" />
             </stencil-route-switch>
           </stencil-router>
         </main>
