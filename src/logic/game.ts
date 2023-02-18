@@ -41,7 +41,7 @@ export class Game {
 
     public async doMyTurn(): Promise<void> {
         let newState = { ...this.state }
-        await new Promise((resolve) => {
+        await new Promise(() => {
             // never resolve
             document.addEventListener("keydown", this.handleKeydown)
             // Alert me that it's my turn
@@ -63,6 +63,8 @@ export class Game {
                 newState = { ...newState, idOfBoatWhoseTurnItIs: boatWhoseTurnItIs.boatId }
             }
         })
+
+        console.log("removing evt listener")
 
         document.removeEventListener("keydown", this.handleKeydown)
         await this.updateGame(newState)
