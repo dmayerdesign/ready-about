@@ -36,11 +36,11 @@ export class App {
                 starterBuoys: [],
                 markerBuoys: [],
                 riskSpaces: [],
+                turnOrder: [],
                 createdAt: new Date().toISOString(),
                 // TODO: Pick wind origin direction
                 windOriginDir: "NW",
             }
-            await this._setDoc(gameDocRef, initGameState)
         }
         
         // Pick my boat
@@ -66,6 +66,7 @@ export class App {
                 turnsCompleted: 0,
             }
             initGameState!.boats = [...initGameState!.boats, newBoat]
+            initGameState!.turnOrder = [...initGameState!.turnOrder, myBoatId]
         }
         this._localStorage.setItem("ready-about.boat-id", myBoatId)
         

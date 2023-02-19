@@ -3,7 +3,7 @@ import { Component, ComponentDidLoad, h, Prop, State } from "@stencil/core";
 import { initializeApp as initializeFirebase } from "firebase/app";
 import { doc, getDoc, getFirestore, onSnapshot, setDoc } from "firebase/firestore";
 import { App } from "../../logic/app";
-import { GameState, XYPosition } from "../../logic/game";
+import { BoatState, GameState, XYPosition } from "../../logic/game";
 
 const BOARD_SIZE = 31
 const CELL_SIZE_PX = 20
@@ -14,11 +14,12 @@ const CELL_SIZE_PX = 20
   shadow: true,
 })
 export class AppGame implements ComponentDidLoad {
-  @Prop() public match!: MatchResults;
-  @State() public gameState?: GameState | undefined
-  private readonly grid: XYPosition[][] = []
+  @Prop() public match!: MatchResults
+  @State() public gameState?: GameState
+  @State() public windowWidthPx: number = 0
 
-  public app = new App(
+  private readonly grid: XYPosition[][] = []
+  private app = new App(
     (gameState) => this.gameState = gameState,
     localStorage,
     async () => this.match.params["gameId"],
@@ -48,16 +49,33 @@ export class AppGame implements ComponentDidLoad {
 
   public componentDidLoad(): void {
     this.app.loadOrCreateGame()
+
+    this.windowWidthPx = window.innerWidth
+    window.addEventListener("resize", () => {
+      this.windowWidthPx = window.innerWidth
+    })
   }
 
   public render() {
     if (this.match && this.match.params["gameId"]) {
       return (
-        <div class="app-game">
-          <p>The game ID is: {this.gameState?.gameId ?? "?"}</p>
-          <p>My boat ID is: {this.app.game?.getMyBoatId() ?? "?"}</p>
-          {this.renderGameBoard()}
-          {this.renderControlPanel()}
+        <div class="app-game" style={{
+          display: "flex",
+          flexDirection: this.windowWidthPx > 1100 ? "row" : "column",
+          justifyContent: this.windowWidthPx > 1100 ? "center" : "flex-start",
+          alignItems: this.windowWidthPx > 1100 ? "flex-start" : "center",
+        }}>
+          <div class="game-board-container" style={{width: `${(CELL_SIZE_PX * BOARD_SIZE)}px`}}>
+            {this.renderGameBoard()}
+          </div>
+          <div class="control-panel-container" style={{
+            width: "500px",
+            flexBasis: "500px",
+            minWidth: "500px",
+            marginLeft: "40px",
+          }}>
+            {this.renderControlPanel()}
+          </div>
         </div>
       );
     }
@@ -65,6 +83,7 @@ export class AppGame implements ComponentDidLoad {
 
   private renderGameBoard() {
     return <div class="game-board" style={{
+      float: "left",
       position: "relative",
       width: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
       height: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
@@ -124,11 +143,44 @@ export class AppGame implements ComponentDidLoad {
 
   private renderControlPanel() {
     return <div class="control-panel">
+      <h1>{
+        this.app.game?.getMyBoatId() === this.gameState?.idOfBoatWhoseTurnItIs
+          ? 'Your Turn!'
+          : `${this.gameState?.boats.find(boat => boat.boatId === this.gameState?.idOfBoatWhoseTurnItIs)?.name} is taking their turn`
+      }</h1>
+      {
+        this.app.game?.getMyBoatId() === this.gameState?.idOfBoatWhoseTurnItIs
+        ? <button onClick={() => this.app.game?.endMyTurn()}>End Turn</button>
+        : ''
+      }
+      <dl>
+        {this.renderCtrlPanelDdDt('Game ID:', this.gameState?.gameId ?? "")}
+      </dl>
+      <h2>My Boat:</h2>
+      <dl>
+        {this.renderCtrlPanelDdDt('ID:', this.getMyBoat()?.boatId ?? "----")}
 
+        {this.renderCtrlPanelDdDt('Color:', this.getMyBoat()?.color ?? "----")}
+
+        {this.renderCtrlPanelDdDt('Remaining speed:', this.getMyBoat()?.remainingSpeed?.toString() ?? "----")}
+
+        {this.renderCtrlPanelDdDt('Most recent move direction:', this.getMyBoat()?.mostRecentMoveDir ?? "----")}
+      </dl>
     </div>
+  }
+
+  private renderCtrlPanelDdDt(dtText: string, ddText: string) {
+    return [
+      <dt style={{float: "left"}}>{dtText}</dt>,
+      <dd>{ddText}</dd>,
+    ]
   }
 
   private posToPx(xOrY: number): number {
     return xOrY * CELL_SIZE_PX
+  }
+
+  private getMyBoat(): BoatState | undefined {
+    return this.gameState?.boats.find(boat => boat.boatId === this.gameState?.idOfBoatWhoseTurnItIs)
   }
 }

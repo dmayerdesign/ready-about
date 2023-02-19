@@ -14,6 +14,7 @@ export class Game {
     private state: GameState
     private myBoatId: string | undefined
     public moveClick$ = new Subject<XYPosition>()
+    public endTurnClick$ = new Subject<true>()
 
     public constructor(
         initGameState: GameState,
@@ -38,6 +39,7 @@ export class Game {
     }
 
     public async handleDbGameStateChange(newGameState: GameState): Promise<void> {
+        console.log('handleDbGameStateChange', newGameState)
         const myTurnNow = this.state.idOfBoatWhoseTurnItIs !== this.myBoatId && newGameState.idOfBoatWhoseTurnItIs == this.myBoatId
         const isSoloGame = this.state.boats.length === 1
         this.state = newGameState
@@ -50,15 +52,15 @@ export class Game {
 
     public async doMyTurn(firstMove = true): Promise<void> {
         // Alert me that it's my turn
-        if (firstMove) {
-            alert("Your turn!")
-        }
+        // if (firstMove) {
+        //     alert("Your turn!")
+        // }
         // Choose move direction
         let keydownListener!: (event: KeyboardEvent) => Promise<void>
         // Wait for my choice
-        const moveDir = await Promise.race([
+        const moveDirOrEndTurn: Direction | undefined | "END_TURN" = await Promise.race([
             new Promise<Direction | undefined>((resolve) => {
-                // - Wait for keypress
+                // - Wait for keydown
                 keydownListener = this.createMoveDirKeydownListener(resolve)
                 document.addEventListener("keydown", keydownListener)
             }),
@@ -72,55 +74,44 @@ export class Game {
                     }
                 })
             }),
+            new Promise<"END_TURN">((resolve) => {
+                firstValueFrom(this.endTurnClick$).then(() => {
+                    resolve("END_TURN")
+                })
+            }),
         ])
-        if (moveDir !== undefined) {
+        if (moveDirOrEndTurn === "END_TURN") {
+            await this.cycleTurn()
+            return
+        }
+        if (moveDirOrEndTurn !== undefined) {
             // Confirm choice
-            if (!firstMove || window.confirm("Are you sure you want to move " + moveDir + "?")) {
+            if (!firstMove || window.confirm("Are you sure you want to move " + moveDirOrEndTurn + "?")) {
                 // Move 1 space in that direction
-                await this.move(moveDir)
+                await this.move(moveDirOrEndTurn)
                 if (keydownListener) document.removeEventListener("keydown", keydownListener)
                 // Complete the turn by calling this function recursively
                 if ((this.getMyBoat()?.remainingSpeed ?? 0) > 0) {
+                    console.log('calling doMyTurn recursively. remaining speed:', this.getMyBoat()?.remainingSpeed)
                     await this.doMyTurn(false)
                 }
                 else {
+                    await this.cycleTurn()
                     const gameOver = this.state.boats.filter(b => b.hasFinished).length >= Math.max(this.state.boats.length - 1, 1)
                     if (gameOver) {
+                        await this.updateGame({
+                            ...this.state,
+                            finishedAt: new Date().toISOString(),
+                        })
                         alert("Game over!")
-                        await Promise.all([
-                            this.updateGame({
-                                ...this.state,
-                                finishedAt: new Date().toISOString(),
-                            }),
-                            this.updateMyBoat({
-                                ...this.getMyBoat()!,
-                                hasMovedThisTurn: false,
-                                turnsCompleted: (this.getMyBoat()?.turnsCompleted ?? 0) + 1,
-                            }),
-                        ])
-                    } else {
-                        // If game is not over, cycle the turn
-                        let thisTurnIndex = this.state.boats.findIndex(b => b.boatId === this.state.idOfBoatWhoseTurnItIs) + 1
-                        if (thisTurnIndex >= this.state.boats.length) thisTurnIndex = 0
-                        const boatWhoseTurnItIs = this.state.boats[thisTurnIndex]
-                        await Promise.all([
-                            this.updateGame({
-                                ...this.state,
-                                idOfBoatWhoseTurnItIs: boatWhoseTurnItIs.boatId,
-                            }),
-                            this.updateMyBoat({
-                                ...this.getMyBoat()!,
-                                hasMovedThisTurn: false,
-                                turnsCompleted: (this.getMyBoat()?.turnsCompleted ?? 0) + 1,
-                            }),
-                        ])
-                        console.log("cycled the turn", this.state)
                     }
                 }
             } else {
-                console.log('calling doMyTurn from doMyTurn')
+                // Move direction choice was rejected (user changed their mind), so reset
                 await this.doMyTurn()
             }
+        } else {
+            console.info("Move not legal")
         }
     }
 
@@ -156,34 +147,70 @@ export class Game {
         console.log("resolved collisions")
     }
 
+    private async cycleTurn(): Promise<void> {
+        const thisTurnIndex = this.state.turnOrder.findIndex(id => id === this.state.idOfBoatWhoseTurnItIs)
+        const nextTurnIndex = thisTurnIndex + 1 >= this.state.boats.length ? 0 : thisTurnIndex + 1
+        const boatEndingTurn = this.state.boats.find((boat) => boat.boatId === this.state.turnOrder[thisTurnIndex])!
+        const nextBoat = this.state.boats.find((boat) => boat.boatId === this.state.turnOrder[nextTurnIndex])!
+        const allOtherBoats = this.state.boats.filter(({ boatId }) => boatId !== boatEndingTurn.boatId && boatId !== nextBoat.boatId)
+        console.log("cycling turn...",
+            thisTurnIndex,
+            nextTurnIndex,
+            boatEndingTurn.boatId,
+            nextBoat.boatId,
+            this.state.turnOrder,
+            this.state.idOfBoatWhoseTurnItIs,
+            nextBoat.boatId)
+        await this.updateGame({
+            ...this.state,
+            idOfBoatWhoseTurnItIs: nextBoat.boatId,
+            boats: [
+                ...allOtherBoats,
+                nextBoat,
+                {
+                    ...boatEndingTurn,
+                    hasMovedThisTurn: false,
+                    turnsCompleted: (boatEndingTurn.turnsCompleted) + 1,
+                }
+            ]
+        })
+        console.log("cycled the turn",
+            thisTurnIndex,
+            nextTurnIndex,
+            boatEndingTurn.boatId,
+            this.getState().turnOrder,
+            this.state.idOfBoatWhoseTurnItIs,
+            nextBoat.boatId)
+    }
+
     private createMoveDirKeydownListener = (resolve: (dir: Direction | undefined) => void) => async (event: KeyboardEvent) => {
         const myBoat = this.getMyBoat()
         let dir: Direction | undefined
+        const resolveFully = (_dir: Direction | undefined) => {
+            dir = _dir
+            resolve(dir)
+            event.preventDefault()
+        }
         if (myBoat && myBoat!.pos) {
             switch (event.key) {
                 case "Up":
                 case "ArrowUp":
-                    dir = "N"
-                    event.preventDefault()
+                    resolveFully("N")
                     break;
                 case "Right":
                 case "ArrowRight":
-                    dir = "E"
-                    event.preventDefault()
+                    resolveFully("E")
                     break;
                 case "Down":
                 case "ArrowDown":
-                    dir = "S"
-                    event.preventDefault()
+                    resolveFully("S")
                     break;
                 case "Left":
                 case "ArrowLeft":
-                    dir = "W"
-                    event.preventDefault()
+                    resolveFully("W")
                     break;
             }
         }
-        resolve(dir)
     }
 
     public async resolveCollisions(): Promise<void> {
@@ -257,22 +284,21 @@ export class Game {
                     // twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1] + 2];
                     break;
             }
-            let boatIdBlocking: string
             this.state.boats.forEach((boat) => {
                 boatIsBlockingMyWind = boatIsBlockingMyWind || isEqual(boat.pos, oneSpaceUpwind) // || isEqual(boat.pos, twoSpacesUpwind)
-                if (boatIsBlockingMyWind) boatIdBlocking = boat.boatId
             })
             if (boatIsBlockingMyWind) {
                 remainingSpeed = remainingSpeed - 1
             }
 
-            // If myBoat.turnsCompleted < 4, I cannot move north of the starting line
-            // If someone is 1 or 2 spaces upwind, subtract 1 from my speed
-            // If a buoy is on the target space or on my way there, return false
-            // If a risk space is on my way to the target space, return false
-            // (Remember bonus speed doesn't come into play here; risk spaces are just walls to this function)
-            // If a boat is on my way to the target space, return false
-            // If a boat is on the target space, return false UNLESS I have right of way
+            // TODO:
+            // - If myBoat.turnsCompleted < 4, I cannot move north of the starting line
+            // - If someone is 1 or 2 spaces upwind, subtract 1 from my speed
+            // - If a buoy is on the target space or on my way there, return false
+            // - If a risk space is on my way to the target space, return false
+            //   (Remember bonus speed doesn't come into play here; risk spaces are just walls to this function)
+            // - If a boat is on my way to the target space, return false
+            // - If a boat is on the target space, return false UNLESS I have right of way
 
             if (remainingSpeed < howFarIsThere) {
                 return [false, myBoat.remainingSpeed, desiredMoveDir, tack]
@@ -311,6 +337,10 @@ export class Game {
             boats,
         }
         await this.updateGame(newGameState)
+    }
+
+    public endMyTurn(): void {
+        this.endTurnClick$.next(true)
     }
 }
 
@@ -485,7 +515,7 @@ const SPEEDS: Record<PointOfSail, number> = {
     "beat": 1,
     "beam reach": 2,
     "broad reach": 2,
-    "run": 2
+    "run": 1
 }
 
 export interface GameState {
@@ -502,4 +532,6 @@ export interface GameState {
     startedAt?: string
     /** ISO date-time format */
     finishedAt?: string
+    /** List of boat IDs */
+    turnOrder: string[]
 }
