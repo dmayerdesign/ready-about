@@ -44,18 +44,18 @@ export class App {
         }
         
         // Pick my boat
-        let boatId: string | undefined = undefined
+        let myBoatId: string | undefined = undefined
         if (resuming) {
-            boatId = this._localStorage.getItem("ready-about.boat-id") || undefined
+            myBoatId = this._localStorage.getItem("ready-about.boat-id") || undefined
         }
-        if (!resuming || boatId == undefined) {
-            boatId = v4()
+        if (!resuming || myBoatId == undefined) {
+            myBoatId = v4()
             const newBoat: BoatState = {
                 // TODO: Pick a name
                 name: "My Boat",
                 // TODO: Pick a starting position
                 pos: [15,15],
-                boatId,
+                boatId: myBoatId,
                 hasMovedThisTurn: false,
                 remainingSpeed: 0,
                 hasFinished: false,
@@ -63,7 +63,7 @@ export class App {
             }
             initGameState!.boats = [...initGameState!.boats, newBoat]
         }
-        this._localStorage.setItem("ready-about.boat-id", boatId)
+        this._localStorage.setItem("ready-about.boat-id", myBoatId)
         
         // Wait for others to join and pick their boats
         // Click "start" or "resume" (switch on `startedAt`) once all players have joined
@@ -73,23 +73,29 @@ export class App {
             const randomIndexOfFirstTurn = Math.floor(Math.random() * (initGameState!.boats.length - 1))
             initGameState!.idOfBoatWhoseTurnItIs = initGameState!.boats[randomIndexOfFirstTurn].boatId
         }
-        await this.startOrResumeGame(gameDocRef, boatId, initGameState!)
-        // TODO: Probably don't call this here, just for testing
-        await this.game?.doMyTurn()
+        await this.startOrResumeGame(gameDocRef, myBoatId, initGameState!)
     }
 
-    public async startOrResumeGame(gameDocRef: DocumentReference<GameState>, boatId: string, initGameState: GameState): Promise<void> {
+    public async startOrResumeGame(gameDocRef: DocumentReference<GameState>, myBoatId: string, initGameState: GameState): Promise<void> {
         if (!initGameState.startedAt) {
             // Pick a course (starterBuoys, markerBuoys, riskSpaces)
             // Pick a wind origin direction
             // Place the boats
             // Everyone place your boat
         }
-        this.game = new Game(initGameState, boatId, async (newState) => {
-            console.log("updating game", newState, newState.boats[0])
-            this._onGameUpdate(newState)
-            await this._setDoc(gameDocRef, newState)
-        })
+        this.game = new Game(
+            initGameState,
+            myBoatId,
+            async (newState) => {
+                this._onGameUpdate(newState)
+            },
+            async (newState) => {
+                await this._setDoc(gameDocRef, newState)
+            },
+        )
+        if (initGameState.idOfBoatWhoseTurnItIs == myBoatId) {
+            await this.game.doMyTurn()
+        }
         this.unsubFromGameSnapshots = this._onSnapshot(gameDocRef,
             (snapshot) => {
                 if (snapshot?.data() !== undefined) {

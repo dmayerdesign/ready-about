@@ -55,21 +55,19 @@ export class AppGame implements ComponentDidLoad {
       return (
         <div class="app-game">
           <p>The game ID is: {this.gameState?.gameId ?? "?"}</p>
-
           {this.renderGameBoard()}
+          {this.renderControlPanel()}
         </div>
       );
     }
   }
 
   private renderGameBoard() {
-    console.log('board rendered', this.gameState?.boats[0]?.remainingSpeed, this.gameState?.boats[0]?.pos)
     return <div class="game-board" style={{
       position: "relative",
       width: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
       height: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
       boxSizing: "content-box",
-      border: "2px solid gray",
     }}>
       <div class="grid-layer">
         {this.grid.map(row => <div class="row">
@@ -80,23 +78,16 @@ export class AppGame implements ComponentDidLoad {
               bottom: `${this.posToPx(cell[1])}px`,
               width: CELL_SIZE_PX + "px",
               height: CELL_SIZE_PX + "px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "none",
-              boxShadow: "none",
-              outline: "none !important",
-              padding: "0",
-              background: "transparent"
             }}
             onClick={() => this.app.game?.moveClick$.next(cell)}
           >
             <div class="dot"
               style={{
-                width: "6px",
-                height: "6px",
-                backgroundColor: this.app.game?.canIMoveThere(cell)[0] ? "red" : "black",
-                borderRadius: "3px",
+                width: this.app.game?.canIMoveThere(cell)[0] ? "8px" : "6px",
+                height: this.app.game?.canIMoveThere(cell)[0] ? "8px" : "6px",
+                backgroundColor: this.app.game?.canIMoveThere(cell)[0] ? /*"#55aaff"*/ "#33aaff" : "#dfeefa",
+                borderRadius: "5px",
+                cursor: this.app.game?.canIMoveThere(cell)[0] ? "pointer" : "default",
               }}
             >
               <span style={{position: "absolute", display: "block", opacity: "0", width: "0", height: "0", overflow: "hidden"}}>
@@ -127,6 +118,12 @@ export class AppGame implements ComponentDidLoad {
       </div>
       <div class="risk-layer">
       </div>
+    </div>
+  }
+
+  private renderControlPanel() {
+    return <div class="control-panel">
+
     </div>
   }
 
