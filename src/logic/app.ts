@@ -48,6 +48,10 @@ export class App {
         if (resuming) {
             myBoatId = this._localStorage.getItem("ready-about.boat-id") || undefined
         }
+        if (myBoatId && !initGameState?.boats.find(({ boatId }) => boatId === myBoatId)) {
+            this._localStorage.removeItem("ready-about.boat-id")
+            myBoatId = undefined
+        }
         if (!resuming || myBoatId == undefined) {
             myBoatId = v4()
             const newBoat: BoatState = {
@@ -73,6 +77,7 @@ export class App {
             const randomIndexOfFirstTurn = Math.floor(Math.random() * (initGameState!.boats.length - 1))
             initGameState!.idOfBoatWhoseTurnItIs = initGameState!.boats[randomIndexOfFirstTurn].boatId
         }
+        console.log("initial game state", initGameState)
         await this.startOrResumeGame(gameDocRef, myBoatId, initGameState!)
     }
 

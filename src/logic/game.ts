@@ -1,4 +1,5 @@
 import { firstValueFrom, Subject } from "rxjs"
+import { isEqual } from "lodash"
 
 /**
  * Biggest challenges so far:
@@ -138,13 +139,14 @@ export class Game {
             case "W": there = [there[0] - 1, there[1]]; break;
             case "NW": there = [there[0] - 1, there[1] + 1]; break;
         }
-        const [canIMove, remainingSpeed] = this.canIMoveThere(there)
+        const [canIMove, remainingSpeed, _, tack] = this.canIMoveThere(there)
         if (canIMove) {
             await this.updateMyBoat({
                 ...this.getMyBoat()!,
                 remainingSpeed: remainingSpeed - 1,
                 hasMovedThisTurn: true,
                 mostRecentMoveDir: dir,
+                tack,
                 pos: there,
             })
         }
@@ -191,21 +193,21 @@ export class Game {
         // Easier: Auto-move them 1 space downwind
     }
 
-    public canIMoveThere(there: XYPosition): [boolean, number, Direction | undefined] {
+    public canIMoveThere(there: XYPosition): [boolean, number, Direction | undefined, Tack | undefined] {
         const myBoat = this.state.boats?.find(boat => boat.boatId != undefined && boat.boatId === this.myBoatId)
         if (myBoat == undefined || myBoat.pos == undefined || this.state.windOriginDir == undefined) {
-            return [false, 0, undefined]
+            return [false, 0, undefined, undefined]
         }
 
         if (myBoat.boatId !== this.state.idOfBoatWhoseTurnItIs) {
-            return [false, 0, undefined]
+            return [false, 0, undefined, undefined]
         }
         
         const desiredMoveDir = getMoveDir(myBoat.pos, there)
         let remainingSpeed = myBoat.remainingSpeed
 
         if (this.getMyBoat()?.hasMovedThisTurn && desiredMoveDir !== this.getMyBoat()?.mostRecentMoveDir) {
-            return [false, remainingSpeed, this.getMyBoat()?.mostRecentMoveDir]
+            return [false, remainingSpeed, this.getMyBoat()?.mostRecentMoveDir, this.getMyBoat()?.tack]
         }
 
         if (desiredMoveDir !== undefined && desiredMoveDir !== this.state.windOriginDir) {
@@ -216,11 +218,54 @@ export class Game {
                 const didTack = myBoat.tack !== undefined && tack != myBoat.tack
                 remainingSpeed = didTack ? 1 : SPEEDS[pointOfSail]
             }
-    
-            if (remainingSpeed < howFarIsThere) {
-                return [false, myBoat.remainingSpeed, desiredMoveDir]
-            }
             
+            // If a boat is blocking my wind, my initial speed is minus 1
+            let boatIsBlockingMyWind = false
+            let oneSpaceUpwind = myBoat.pos
+            // let twoSpacesUpwind = myBoat.pos
+            switch (this.getState().windOriginDir) {
+                case "N":
+                    oneSpaceUpwind = [myBoat.pos[0], myBoat.pos[1] + 1];
+                    // twoSpacesUpwind = [myBoat.pos[0], myBoat.pos[1] + 2];
+                    break;
+                case "NE":
+                    oneSpaceUpwind = [myBoat.pos[0] + 1, myBoat.pos[1] + 1];
+                    // twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1] + 2];
+                    break;
+                case "E":
+                    oneSpaceUpwind = [myBoat.pos[0] + 1, myBoat.pos[1]];
+                    // twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1]];
+                    break;
+                case "SE":
+                    oneSpaceUpwind = [myBoat.pos[0] + 1, myBoat.pos[1] - 1];
+                    // twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1] - 2];
+                    break;
+                case "S":
+                    oneSpaceUpwind = [myBoat.pos[0], myBoat.pos[1] - 1];
+                    // twoSpacesUpwind = [myBoat.pos[0], myBoat.pos[1] - 2];
+                    break;
+                case "SW":
+                    oneSpaceUpwind = [myBoat.pos[0] - 1, myBoat.pos[1] - 1];
+                    // twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1] - 2];
+                    break;
+                case "W":
+                    oneSpaceUpwind = [myBoat.pos[0] - 1, myBoat.pos[1]];
+                    // twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1]];
+                    break;
+                case "NW":
+                    oneSpaceUpwind = [myBoat.pos[0] - 1, myBoat.pos[1] + 1];
+                    // twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1] + 2];
+                    break;
+            }
+            let boatIdBlocking: string
+            this.state.boats.forEach((boat) => {
+                boatIsBlockingMyWind = boatIsBlockingMyWind || isEqual(boat.pos, oneSpaceUpwind) // || isEqual(boat.pos, twoSpacesUpwind)
+                if (boatIsBlockingMyWind) boatIdBlocking = boat.boatId
+            })
+            if (boatIsBlockingMyWind) {
+                remainingSpeed = remainingSpeed - 1
+            }
+
             // If myBoat.turnsCompleted < 4, I cannot move north of the starting line
             // If someone is 1 or 2 spaces upwind, subtract 1 from my speed
             // If a buoy is on the target space or on my way there, return false
@@ -228,10 +273,14 @@ export class Game {
             // (Remember bonus speed doesn't come into play here; risk spaces are just walls to this function)
             // If a boat is on my way to the target space, return false
             // If a boat is on the target space, return false UNLESS I have right of way
-            return [true, remainingSpeed, desiredMoveDir]
+
+            if (remainingSpeed < howFarIsThere) {
+                return [false, myBoat.remainingSpeed, desiredMoveDir, tack]
+            }
+            return [true, remainingSpeed, desiredMoveDir, tack]
         }
     
-        return [false, myBoat.remainingSpeed, undefined]
+        return [false, myBoat.remainingSpeed, undefined, undefined]
     }
 
     private async updateGame(newGameState: GameState): Promise<void> {

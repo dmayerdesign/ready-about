@@ -55,6 +55,7 @@ export class AppGame implements ComponentDidLoad {
       return (
         <div class="app-game">
           <p>The game ID is: {this.gameState?.gameId ?? "?"}</p>
+          <p>My boat ID is: {this.app.game?.getMyBoatId() ?? "?"}</p>
           {this.renderGameBoard()}
           {this.renderControlPanel()}
         </div>
