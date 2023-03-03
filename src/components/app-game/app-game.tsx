@@ -1,11 +1,10 @@
 import { MatchResults } from "@stencil-community/router";
 import { Component, ComponentDidLoad, h, Prop, State } from "@stencil/core";
 import { initializeApp as initializeFirebase } from "firebase/app";
-import { doc, getDoc, getFirestore, onSnapshot, setDoc } from "firebase/firestore";
-import { App } from "../../logic/app";
-import { BoatState, GameState, XYPosition } from "../../logic/game";
+import { collection, doc, getDoc, getDocs, getFirestore, onSnapshot, orderBy, query, setDoc, where } from "firebase/firestore";
+import { constructLoadGame, Game, XYPosition, Boat, GameCommand, MoveDirection, Tack, createGrid, Speed, UiControls } from "../../logic/app-2";
 
-const BOARD_SIZE = 31
+const BOARD_SIZE = 30
 const CELL_SIZE_PX = 20
 
 @Component({
@@ -15,14 +14,15 @@ const CELL_SIZE_PX = 20
 })
 export class AppGame implements ComponentDidLoad {
   @Prop() public match!: MatchResults
-  @State() public gameState?: GameState
+  @State() public game?: Game
+  @State() public uiControls?: UiControls
   @State() public windowWidthPx: number = 0
 
-  private readonly grid: XYPosition[][] = []
-  private app = new App(
-    (gameState) => this.gameState = gameState,
+  private readonly grid: XYPosition[][] = createGrid(BOARD_SIZE)
+  private loadGame = constructLoadGame(
+    (game) => this.game = game,
+    BOARD_SIZE,
     localStorage,
-    async () => this.match.params["gameId"],
     getFirestore(initializeFirebase({
       apiKey: "AIzaSyCRE81HDBkOQkZYAtZYGPbJSIJpJip_CJ8",
       authDomain: "ready-about-80b09.firebaseapp.com",
@@ -31,24 +31,33 @@ export class AppGame implements ComponentDidLoad {
       messagingSenderId: "185028746311",
       appId: "1:185028746311:web:72de4ff2c8e16c34102562"
     })),
+    collection,
     doc,
     getDoc,
+    getDocs,
+    query,
+    where,
+    orderBy,
     setDoc,
     onSnapshot,
   )
-
-  public constructor() {
-    for (let i = 0; i < BOARD_SIZE; i++) {
-      const row: XYPosition[] = []
-      for (let j = 0; j < BOARD_SIZE; j++) {
-        row.push([j, i])
-      }
-      this.grid.push(row)
-    }
-  }
+  private dispatchCommand!: (command: GameCommand) => void;
+  private getMyBoat!: () => Boat | undefined;
+  private getPotentialSpeedAndTack!: (dir: MoveDirection) => [Speed, Tack | undefined, string | undefined]
+  private replayGame!: () => Promise<void>
 
   public componentDidLoad(): void {
-    this.app.loadOrCreateGame()
+    this.loadGame(
+      this.match.params["gameId"],
+      (state) => this.game = state,
+      (_) => {},
+      (_) => {},
+    ).then(({ dispatchCommand, getMyBoat, getPotentialSpeedAndTack, replayGame }) => {
+      this.dispatchCommand = dispatchCommand
+      this.getMyBoat = getMyBoat
+      this.getPotentialSpeedAndTack = getPotentialSpeedAndTack
+      this.replayGame = replayGame
+    })
 
     this.windowWidthPx = window.innerWidth
     window.addEventListener("resize", () => {
@@ -91,7 +100,7 @@ export class AppGame implements ComponentDidLoad {
     }}>
       <div class="grid-layer">
         {this.grid.map(row => <div class="row">
-          {row.map(cell => <button class="cell"
+          {row.map(cell => <div class="cell"
             style={{
               position: "absolute",
               left: `${this.posToPx(cell[0])}px`,
@@ -99,30 +108,29 @@ export class AppGame implements ComponentDidLoad {
               width: CELL_SIZE_PX + "px",
               height: CELL_SIZE_PX + "px",
             }}
-            onClick={() => this.app.game?.moveClick$.next(cell)}
           >
             <div class="dot"
               style={{
-                width: this.app.game?.canIMoveThere(cell)[0] ? "8px" : "6px",
-                height: this.app.game?.canIMoveThere(cell)[0] ? "8px" : "6px",
-                backgroundColor: this.app.game?.canIMoveThere(cell)[0] ? /*"#55aaff"*/ "#33aaff" : "#dfeefa",
+                // width: this.canIMoveThere(cell)[0] ? "8px" : "6px",
+                // height: this.canIMoveThere(cell)[0] ? "8px" : "6px",
+                // backgroundColor: this.canIMoveThere(cell)[0] ? /*"#55aaff"*/ "#33aaff" : "#dfeefa",
                 borderRadius: "5px",
-                cursor: this.app.game?.canIMoveThere(cell)[0] ? "pointer" : "default",
+                // cursor: this.canIMoveThere(cell)[0] ? "pointer" : "default",
               }}
             >
               <span style={{position: "absolute", display: "block", opacity: "0", width: "0", height: "0", overflow: "hidden"}}>
                 Position X {cell[0]}, Y {cell[1]}
               </span>
             </div>
-          </button>)}
+          </div>)}
         </div>)}
       </div>
       <div class="boats-layer">
-        {this.gameState?.boats.filter(boat => boat.pos).map(boat => <div class="boat"
+        {this.game?.boats.filter(boat => boat.state.pos).map(boat => <div class="boat"
           style={{
             position: "absolute",
-            left: `${this.posToPx(boat.pos![0])}px`,
-            bottom: `${this.posToPx(boat.pos![1])}px`,
+            left: `${this.posToPx(boat.state.pos![0])}px`,
+            bottom: `${this.posToPx(boat.state.pos![1])}px`,
             width: CELL_SIZE_PX + "px",
             height: CELL_SIZE_PX + "px",
             display: "flex",
@@ -144,27 +152,28 @@ export class AppGame implements ComponentDidLoad {
   private renderControlPanel() {
     return <div class="control-panel">
       <h1>{
-        this.app.game?.getMyBoatId() === this.gameState?.idOfBoatWhoseTurnItIs
+        this.getMyBoat()?.boatId === this.game?.idOfBoatWhoseTurnItIs
           ? 'Your Turn!'
-          : `${this.gameState?.boats.find(boat => boat.boatId === this.gameState?.idOfBoatWhoseTurnItIs)?.name} is taking their turn`
+          : `${this.game?.boats.find(boat => boat.boatId === this.game?.idOfBoatWhoseTurnItIs)?.settings.name} is taking their turn`
       }</h1>
       {
-        this.app.game?.getMyBoatId() === this.gameState?.idOfBoatWhoseTurnItIs
-        ? <button onClick={() => this.app.game?.endMyTurn()}>End Turn</button>
+        this.getMyBoat()?.boatId === this.game?.idOfBoatWhoseTurnItIs
+        ? <button
+          onClick={() => this.dispatchCommand({ name: "EndTurnAndCycle" })}
+          disabled={!this.getMyBoat()?.state.hasMovedThisTurn && (this.getMyBoat()?.state?.speed ?? 0) > 0}
+        >End Turn</button>
         : ''
       }
       <dl>
-        {this.renderCtrlPanelDdDt('Game ID:', this.gameState?.gameId ?? "")}
+        {this.renderCtrlPanelDdDt('Game ID:', this.game?.gameId ?? "----")}
       </dl>
       <h2>My Boat:</h2>
       <dl>
         {this.renderCtrlPanelDdDt('ID:', this.getMyBoat()?.boatId ?? "----")}
 
-        {this.renderCtrlPanelDdDt('Color:', this.getMyBoat()?.color ?? "----")}
+        {this.renderCtrlPanelDdDt('Color:', this.getMyBoat()?.settings.color ?? "----")}
 
-        {this.renderCtrlPanelDdDt('Remaining speed:', this.getMyBoat()?.remainingSpeed?.toString() ?? "----")}
-
-        {this.renderCtrlPanelDdDt('Most recent move direction:', this.getMyBoat()?.mostRecentMoveDir ?? "----")}
+        {this.renderCtrlPanelDdDt('Remaining speed:', this.getMyBoat()?.state.speed.toString() ?? "----")}
       </dl>
     </div>
   }
@@ -178,9 +187,5 @@ export class AppGame implements ComponentDidLoad {
 
   private posToPx(xOrY: number): number {
     return xOrY * CELL_SIZE_PX
-  }
-
-  private getMyBoat(): BoatState | undefined {
-    return this.gameState?.boats.find(boat => boat.boatId === this.gameState?.idOfBoatWhoseTurnItIs)
   }
 }
