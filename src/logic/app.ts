@@ -1,12 +1,14 @@
-import type { doc, Firestore, getDoc, setDoc, onSnapshot, DocumentReference, Unsubscribe } from "firebase/firestore"
-import { v4 } from "uuid"
-import { BoatState, Game, GameState } from "./game";
+import type { doc, DocumentReference, Firestore, getDoc, onSnapshot, setDoc, Unsubscribe } from "firebase/firestore";
+import { v4 } from "uuid";
+import { Game } from "./game";
+import { BoatState, GameState } from "./model";
 
 export class App {
     public game: Game | undefined
     private unsubFromGameSnapshots!: Unsubscribe
 
     public constructor(
+        private _boardSize: number,
         private _onGameUpdate: (game: GameState) => void,
         private _localStorage: typeof localStorage,
         private _getGameIdRouteParam: () => Promise<string | undefined>,
@@ -90,6 +92,7 @@ export class App {
             // Everyone place your boat
         }
         this.game = new Game(
+            this._boardSize,
             initGameState,
             myBoatId,
             async (newState) => {

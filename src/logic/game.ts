@@ -1,5 +1,14 @@
-import { firstValueFrom, Subject } from "rxjs"
 import { isEqual } from "lodash"
+import { firstValueFrom, Subject } from "rxjs"
+import { createGrid } from "./app-2"
+import type { BoatState, Direction, GameState, PointOfSail, Tack, XYPosition } from "./model"
+
+const SPEEDS: Record<PointOfSail, number> = {
+    "beat": 1,
+    "beam reach": 2,
+    "broad reach": 2,
+    "run": 1
+}
 
 /**
  * Biggest challenges so far:
@@ -17,6 +26,7 @@ export class Game {
     public endTurnClick$ = new Subject<true>()
 
     public constructor(
+        private _boardSize: number,
         initGameState: GameState,
         myBoatId: string | undefined,
         private _updateGameLocally: (newGameState: GameState) => Promise<void>,
@@ -55,6 +65,16 @@ export class Game {
         // if (firstMove) {
         //     alert("Your turn!")
         // }
+
+        // If mid-move and I have nowhere left to move, end my turn
+        if (!firstMove) {
+            const availableSpaces = createGrid(this._boardSize).flatMap(row => row).filter(cell => this.canIMoveThere(cell)[0])
+            if (availableSpaces.length === 0) {
+                await this.cycleTurn("no available spaces")
+                return
+            }
+        }
+
         // Choose move direction
         let keydownListener!: (event: KeyboardEvent) => Promise<void>
         // Wait for my choice
@@ -81,7 +101,7 @@ export class Game {
             }),
         ])
         if (moveDirOrEndTurn === "END_TURN") {
-            await this.cycleTurn()
+            await this.cycleTurn("player ended turn")
             return
         }
         if (moveDirOrEndTurn !== undefined) {
@@ -96,7 +116,7 @@ export class Game {
                     await this.doMyTurn(false)
                 }
                 else {
-                    await this.cycleTurn()
+                    await this.cycleTurn("remaining speed was zero")
                     const gameOver = this.state.boats.filter(b => b.hasFinished).length >= Math.max(this.state.boats.length - 1, 1)
                     if (gameOver) {
                         await this.updateGame({
@@ -147,20 +167,15 @@ export class Game {
         console.log("resolved collisions")
     }
 
-    private async cycleTurn(): Promise<void> {
+    private async cycleTurn(reason?: string): Promise<void> {
         const thisTurnIndex = this.state.turnOrder.findIndex(id => id === this.state.idOfBoatWhoseTurnItIs)
         const nextTurnIndex = thisTurnIndex + 1 >= this.state.boats.length ? 0 : thisTurnIndex + 1
         const boatEndingTurn = this.state.boats.find((boat) => boat.boatId === this.state.turnOrder[thisTurnIndex])!
         const nextBoat = this.state.boats.find((boat) => boat.boatId === this.state.turnOrder[nextTurnIndex])!
         const allOtherBoats = this.state.boats.filter(({ boatId }) => boatId !== boatEndingTurn.boatId && boatId !== nextBoat.boatId)
-        console.log("cycling turn...",
-            thisTurnIndex,
-            nextTurnIndex,
-            boatEndingTurn.boatId,
-            nextBoat.boatId,
-            this.state.turnOrder,
-            this.state.idOfBoatWhoseTurnItIs,
-            nextBoat.boatId)
+
+        if (reason) console.info("Cycling turn:", reason)
+
         await this.updateGame({
             ...this.state,
             idOfBoatWhoseTurnItIs: nextBoat.boatId,
@@ -174,13 +189,6 @@ export class Game {
                 }
             ]
         })
-        console.log("cycled the turn",
-            thisTurnIndex,
-            nextTurnIndex,
-            boatEndingTurn.boatId,
-            this.getState().turnOrder,
-            this.state.idOfBoatWhoseTurnItIs,
-            nextBoat.boatId)
     }
 
     private createMoveDirKeydownListener = (resolve: (dir: Direction | undefined) => void) => async (event: KeyboardEvent) => {
@@ -221,7 +229,7 @@ export class Game {
     }
 
     public canIMoveThere(there: XYPosition): [boolean, number, Direction | undefined, Tack | undefined] {
-        const myBoat = this.state.boats?.find(boat => boat.boatId != undefined && boat.boatId === this.myBoatId)
+        const myBoat = this.getMyBoat()
         if (myBoat == undefined || myBoat.pos == undefined || this.state.windOriginDir == undefined) {
             return [false, 0, undefined, undefined]
         }
@@ -233,8 +241,8 @@ export class Game {
         const desiredMoveDir = getMoveDir(myBoat.pos, there)
         let remainingSpeed = myBoat.remainingSpeed
 
-        if (this.getMyBoat()?.hasMovedThisTurn && desiredMoveDir !== this.getMyBoat()?.mostRecentMoveDir) {
-            return [false, remainingSpeed, this.getMyBoat()?.mostRecentMoveDir, this.getMyBoat()?.tack]
+        if (myBoat?.hasMovedThisTurn && desiredMoveDir !== myBoat?.mostRecentMoveDir) {
+            return [false, remainingSpeed, myBoat?.mostRecentMoveDir, myBoat?.tack]
         }
 
         if (desiredMoveDir !== undefined && desiredMoveDir !== this.state.windOriginDir) {
@@ -248,44 +256,44 @@ export class Game {
             
             // If a boat is blocking my wind, my initial speed is minus 1
             let boatIsBlockingMyWind = false
-            let oneSpaceUpwind = myBoat.pos
-            // let twoSpacesUpwind = myBoat.pos
+            let oneSpaceUpwind: XYPosition
+            let twoSpacesUpwind: XYPosition
             switch (this.getState().windOriginDir) {
                 case "N":
                     oneSpaceUpwind = [myBoat.pos[0], myBoat.pos[1] + 1];
-                    // twoSpacesUpwind = [myBoat.pos[0], myBoat.pos[1] + 2];
+                    twoSpacesUpwind = [myBoat.pos[0], myBoat.pos[1] + 2];
                     break;
                 case "NE":
                     oneSpaceUpwind = [myBoat.pos[0] + 1, myBoat.pos[1] + 1];
-                    // twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1] + 2];
+                    twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1] + 2];
                     break;
                 case "E":
                     oneSpaceUpwind = [myBoat.pos[0] + 1, myBoat.pos[1]];
-                    // twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1]];
+                    twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1]];
                     break;
                 case "SE":
                     oneSpaceUpwind = [myBoat.pos[0] + 1, myBoat.pos[1] - 1];
-                    // twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1] - 2];
+                    twoSpacesUpwind = [myBoat.pos[0] + 2, myBoat.pos[1] - 2];
                     break;
                 case "S":
                     oneSpaceUpwind = [myBoat.pos[0], myBoat.pos[1] - 1];
-                    // twoSpacesUpwind = [myBoat.pos[0], myBoat.pos[1] - 2];
+                    twoSpacesUpwind = [myBoat.pos[0], myBoat.pos[1] - 2];
                     break;
                 case "SW":
                     oneSpaceUpwind = [myBoat.pos[0] - 1, myBoat.pos[1] - 1];
-                    // twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1] - 2];
+                    twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1] - 2];
                     break;
                 case "W":
                     oneSpaceUpwind = [myBoat.pos[0] - 1, myBoat.pos[1]];
-                    // twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1]];
+                    twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1]];
                     break;
                 case "NW":
                     oneSpaceUpwind = [myBoat.pos[0] - 1, myBoat.pos[1] + 1];
-                    // twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1] + 2];
+                    twoSpacesUpwind = [myBoat.pos[0] - 2, myBoat.pos[1] + 2];
                     break;
             }
             this.state.boats.forEach((boat) => {
-                boatIsBlockingMyWind = boatIsBlockingMyWind || isEqual(boat.pos, oneSpaceUpwind) // || isEqual(boat.pos, twoSpacesUpwind)
+                boatIsBlockingMyWind = boatIsBlockingMyWind || isEqual(boat.pos, oneSpaceUpwind) || isEqual(boat.pos, twoSpacesUpwind)
             })
             if (boatIsBlockingMyWind) {
                 remainingSpeed = remainingSpeed - 1
@@ -473,65 +481,23 @@ function getPointOfSailAndTack(
     return ["run", boatState.tack ?? "starboard"]
 }
 
-// 0,0 is bottom left
-export type XYPosition = [number, number]
-export type Tack = "starboard"|"port"
-export interface OtherPiece {
-    type: "boat"|"starterBuoy"|"markerBuoy"|"riskSpace"
-    id: string
-    xyPosition: XYPosition
-}
-
-export interface Boat extends OtherPiece { type: "boat" }
-export interface StarterBuoy extends OtherPiece { type: "starterBuoy" }
-export interface MarkerBuoy extends OtherPiece { type: "markerBuoy" }
-export interface RiskSpace extends OtherPiece { type: "riskSpace" }
-
-export type Direction = "W"|"NW"|"N"|"NE"|"E"|"SE"|"S"|"SW"
-export type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"
-export interface BoatState {
-    name: string
-    boatId: string
-    color?: string
-    hasMovedThisTurn: boolean
-    mostRecentMoveDir?: Direction
-    tack?: Tack
-    pointOfSail?: PointOfSail
-    remainingSpeed: number
-    pos?: XYPosition
-    hasFinished: boolean
-    turnsCompleted: number
-}
-export interface CanIMoveThereInput {
-    boatState: BoatState
-    there: XYPosition
-    windOriginDir: Direction
-    otherBoats: Boat[]
-    starterBuoys: StarterBuoy[]
-    markerBuoys: MarkerBuoy[]
-    riskSpaces: RiskSpace[]
-}
-const SPEEDS: Record<PointOfSail, number> = {
-    "beat": 1,
-    "beam reach": 2,
-    "broad reach": 2,
-    "run": 1
-}
-
-export interface GameState {
-    gameId: string | undefined
-    boats: BoatState[]
-    idOfBoatWhoseTurnItIs?: string
-    windOriginDir?: Direction
-    starterBuoys: StarterBuoy[]
-    markerBuoys: MarkerBuoy[]
-    riskSpaces: RiskSpace[]
-    /** ISO date-time formats */
-    createdAt: string
-    /** ISO date-time formats */
-    startedAt?: string
-    /** ISO date-time format */
-    finishedAt?: string
-    /** List of boat IDs */
-    turnOrder: string[]
-}
+// TODO: Add chaos deck, draw each turn
+// TODO: Add chance deck — give players option to draw instead of moving
+// TODO: Add buoy rounding logic
+// Crossing start:
+// - draw a LINE SEGMENT between the 2 starting buoys
+// - after move, ask the questions:
+//   - did this line segment intersect with the line segment of my move?
+//   - did I start S of the line and end N of the line?
+// Rounding 1st marker:
+// - draw line from port starting THRU 1st marker, to edge of board
+// - take the LINE SEGMENT between 1st marker and edge of board
+// - after move, ask the questions:
+//   - did this line segment intersect with the line segment of my move?
+//   - did I start W of the line and end E of the line?
+// If 2nd marker exists:
+// - draw line from 1st marker THRU 2nd marker, to edge of board
+// - take the LINE SEGMENT between 2nd marker and edge of board
+// - after move, ask the questions:
+//   - did this line segment intersect with the line segment of my move?
+//   - did I start N of the line and end S of the line?
