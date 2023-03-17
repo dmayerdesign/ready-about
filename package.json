@@ -17,6 +17,7 @@
     "@types/jest": "^27.0.3",
     "@types/lodash": "^4.14.191",
     "@types/uuid": "^9.0.0",
+    "firebase-cli": "^1.2.0",
     "jest": "^27.4.5",
     "jest-cli": "^27.4.5",
     "puppeteer": "^10.0.0"

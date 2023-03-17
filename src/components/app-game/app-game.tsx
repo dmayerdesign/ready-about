@@ -2,7 +2,8 @@ import { MatchResults } from "@stencil-community/router";
 import { Component, ComponentDidLoad, h, Prop, State } from "@stencil/core";
 import { initializeApp as initializeFirebase } from "firebase/app";
 import { collection, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, orderBy, query, setDoc, where } from "firebase/firestore";
-import { constructLoadGame, Game, XYPosition, Boat, GameCommand, MoveDirection, Tack, createGrid, Speed, ControlPanel, BoatColor } from "../../logic/app";
+import { constructLoadGame } from "../../logic/app";
+import { Game, ControlPanel, XYPosition, createGrid, GameCommand, Boat, MoveDirection, Speed, Tack, BoatColor } from "../../logic/model";
 
 const BOARD_SIZE = 30
 const CELL_SIZE_PX = 20
@@ -53,8 +54,11 @@ export class AppGame implements ComponentDidLoad {
     this.loadGame(
       this.match.params["gameId"],
       (state) => this.game = state,
-      (_) => {},
-      (ctrlPanel) => this.ctrlPanel = ctrlPanel,
+      () => {},
+      (ctrlPanel) => {
+        this.ctrlPanel = { ...this.ctrlPanel, ...ctrlPanel }
+        console.log("ctrl updated", { ...this.ctrlPanel })
+      },
     ).then(({ dispatchCommand, getMyBoat, iAmOwner, myTurn, getPotentialSpeedAndTack, replayGame, getAvailableBoatColors }) => {
       this.dispatchCommand = dispatchCommand
       this.getMyBoat = getMyBoat
@@ -119,10 +123,7 @@ export class AppGame implements ComponentDidLoad {
           >
             <div class="dot"
               style={{
-                // width: this.canIMoveThere(cell)[0] ? "8px" : "6px",
-                // height: this.canIMoveThere(cell)[0] ? "8px" : "6px",
-                // backgroundColor: this.canIMoveThere(cell)[0] ? "#33aaff" : "#dfeefa",
-                // cursor: this.canIMoveThere(cell)[0] ? "pointer" : "default",
+                backgroundColor: "#dfeefa",
                 borderRadius: "5px",
                 cursor: this.ctrlPanel.myTurnToChooseStartingPos ? 'pointer' : 'default',
               }}
@@ -138,7 +139,7 @@ export class AppGame implements ComponentDidLoad {
         </div>)}
       </div>
       <div class="boats-layer">
-        {this.game?.boats.filter(boat => boat.state.pos).map(boat => <div class="boat"
+        {this.game?.boats?.filter(boat => boat.state.pos).map(boat => <div class="boat"
           style={{
             position: "absolute",
             left: `${this.posToPx(boat.state.pos![0])}px`,
@@ -152,7 +153,7 @@ export class AppGame implements ComponentDidLoad {
             backgroundSize: "cover"
           }}
         >
-        </div>)}
+        </div>) ?? []}
       </div>
       <div class="buoys-layer">
       </div>
@@ -166,9 +167,11 @@ export class AppGame implements ComponentDidLoad {
     // TODO: if ctrlPanel.iNeedToChooseMyBoat:        show the boat selector
     return <div class="control-panel">
       {
-        this.game.started && this.ctrlPanel.myTurn
-          ? this.renderMyTurnControls()
-          : this.renderNotMyTurnControls()
+        this.game.started
+          ? (this.ctrlPanel.myTurn
+            ? this.renderMyTurnControls()
+            : this.renderNotMyTurnControls())
+          : ''
       }
       {
         !this.game.started && this.iAmOwner()
