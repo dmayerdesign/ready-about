@@ -2,7 +2,7 @@ import { MatchResults } from "@stencil-community/router";
 import { Component, ComponentDidLoad, h, Prop, State } from "@stencil/core";
 import { initializeApp as initializeFirebase } from "firebase/app";
 import { collection, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, orderBy, query, setDoc, where } from "firebase/firestore";
-import { constructLoadGame, Game, XYPosition, Boat, GameCommand, MoveDirection, Tack, createGrid, Speed, ControlPanel, BoatColor } from "../../logic/app-2";
+import { constructLoadGame, Game, XYPosition, Boat, GameCommand, MoveDirection, Tack, createGrid, Speed, ControlPanel, BoatColor } from "../../logic/app";
 
 const BOARD_SIZE = 30
 const CELL_SIZE_PX = 20
