@@ -1,5 +1,5 @@
 import { h } from "@stencil/core"
-import { BenefitCard, getMoveDir, getPointOfSailAndTack, getBoatsBlockingMyWind, getPos1SpaceThisDir } from "../logic/model"
+import { getMoveDir, getPointOfSailAndTack, getBoatsBlockingMyWind, getPos1SpaceThisDir, BenefitCard } from "../logic/model"
 
 export const BENEFIT_CARDS: BenefitCard[] = [
     {
@@ -34,7 +34,6 @@ export const BENEFIT_CARDS: BenefitCard[] = [
             <div class="benefit-card-inner">
                 <h3>{title}</h3>
                 <p>{body}</p>
-                <p>NW | NE | SE | SW</p>
             </div>
         ),
         activeUntil: (_, { myBoat, game }) => game.idOfBoatWhoseTurnItIs !== myBoat.boatId,
@@ -94,22 +93,27 @@ export const BENEFIT_CARDS: BenefitCard[] = [
         ),
         activeUntil: (_, { myBoat, game }) => game.idOfBoatWhoseTurnItIs !== myBoat.boatId,
     },
-    {
-        name: "UNDO_WEATHER",
-        titleText: "Old captain",
-        bodyText: "Play after the \"weather\" card is revealed on anyone’s turn to undo its effects.",
-        copiesInDeck: 4,
-        canBePlayed: (myBoat, { currentTurnPhase, idOfBoatWhoseTurnItIs }) =>
-            myBoat.boatId === idOfBoatWhoseTurnItIs && currentTurnPhase === "BEFORE_MOVE",
-        play: (params) => params.game.weatherCards.revealed[0].undo(params),
-        render: (title, body) => (
-            <div class="benefit-card-inner">
-                <h3>{title}</h3>
-                <p>{body}</p>
-            </div>
-        ),
-        activeUntil: (_, { myBoat, game }) => game.idOfBoatWhoseTurnItIs !== myBoat.boatId,
-    },
+    // FIXME: old captain doesn't seem to work predictably
+    // {
+    //     name: "UNDO_WEATHER",
+    //     titleText: "Old captain",
+    //     bodyText: "Play after the \"weather\" card is revealed on anyone’s turn to undo its effects.",
+    //     copiesInDeck: 4,
+    //     canBePlayed: (_myBoat, { currentTurnPhase }) =>
+    //         currentTurnPhase === "BEFORE_MOVE",
+    //     play: async (params) => {
+    //         console.log('----- UNDOING -----')
+    //         await params.game.weatherCards.revealed[0].undo(params)
+    //         console.log('----- UNDONE -----')
+    //     },
+    //     render: (title, body) => (
+    //         <div class="benefit-card-inner">
+    //             <h3>{title}</h3>
+    //             <p>{body}</p>
+    //         </div>
+    //     ),
+    //     activeUntil: (_, { myBoat, game }) => game.idOfBoatWhoseTurnItIs !== myBoat.boatId,
+    // },
     {
         name: "SPINNAKER",
         titleText: "Spinnaker",
@@ -135,7 +139,7 @@ export const BENEFIT_CARDS: BenefitCard[] = [
             </div>
         ),
         activeUntil: ({ myBoat: boatBefore, game: gameBefore }, { myBoat: boatAfter, game: gameAfter }) => {
-            const [ pointOfSailBefore ] = getPointOfSailAndTack(boatBefore.state.mostRecentMoveDir, gameBefore.windOriginDir!, boatBefore.state)
+            const [ pointOfSailBefore ] = getPointOfSailAndTack(boatBefore?.state.mostRecentMoveDir, gameBefore?.windOriginDir!, boatBefore?.state)
             const [ pointOfSailAfter ] = getPointOfSailAndTack(boatAfter.state.mostRecentMoveDir, gameAfter.windOriginDir!, boatAfter.state)
             return pointOfSailBefore === "run" && pointOfSailAfter !== "run"
         },

@@ -7,9 +7,25 @@
 
   Any global CSS variables should also be applied here.
 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;500;700;900&family=Yellowtail&display=swap');
 
 body {
   margin: 0px;
   padding: 0px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+
+  --pale-navy: #2D5DA4;
+  --darkest-blue: #2C3747;
+  --text-gray-light: #9299A4;
+  --gray-dark: #4F5B6D;
+  --boat-red: #d72d4c;
+  --boat-blue: #73D6E5;
+  --boat-yellow: #F5CD46;
+  --boat-green: #3b9938;
+  --boat-purple: #9C027A;
+  --boat-pink: #FF8AE9;
+}
+
+div {
+  box-sizing: border-box;
 }

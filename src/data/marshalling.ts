@@ -2,29 +2,34 @@ import { BenefitCard, Boat, Game, WeatherCard } from "../logic/model";
 import { BENEFIT_CARDS } from "./benefit-cards";
 import { WEATHER_CARDS } from "./weather-cards";
 
-export function gameToRecord(game?: Game): Record<string, any> {
+export function gameToRecord(game?: Partial<Game>): Record<string, any> {
     if (game == undefined) {
         return {}
     }
-    return {
-        ...game,
-        boats: game.boats.map(boat => ({
+    const gameUpdate = { ...game } as Record<keyof Game, any>
+    if (game.boats) {
+        gameUpdate.boats = game.boats.map(boat => ({
             ...boat,
             state: {
                 ...boat.state,
                 benefitCardsActive: boat.state.benefitCardsActive.map(c => c.name) ?? [],
-                benefitCardsDrawn: boat.state.benefitCardsActive.map(c => c.name) ?? [],
+                benefitCardsDrawn: boat.state.benefitCardsDrawn.map(c => c.name) ?? [],
             },
-        })) ?? [],
-        weatherCards: {
+        }))
+    }
+    if (game.weatherCards) {
+        gameUpdate.weatherCards = {
             deck: game.weatherCards.deck.map(c => c.name) ?? [],
             revealed: game.weatherCards.revealed.map(c => c.name) ?? [],
-        },
-        benefitCards: {
+        }
+    }
+    if (game.benefitCards) {
+        gameUpdate.benefitCards = {
             deck: game.benefitCards.deck.map(c => c.name) ?? [],
             discarded: game.benefitCards.discarded.map(c => c.name) ?? [],
-        },
+        }
     }
+    return gameUpdate
 }
 
 export function recordToGame(marshalledGame?: Record<string, any>): Game | undefined {
@@ -38,7 +43,7 @@ export function recordToGame(marshalledGame?: Record<string, any>): Game | undef
             state: {
                 ...(boat.state ?? {}),
                 benefitCardsActive: boat.state.benefitCardsActive.map((c) => getCardNamed(BENEFIT_CARDS, c as unknown as string)) ?? [],
-                benefitCardsDrawn: boat.state.benefitCardsActive.map((c) => getCardNamed(BENEFIT_CARDS, c as unknown as string)) ?? [],
+                benefitCardsDrawn: boat.state.benefitCardsDrawn.map((c) => getCardNamed(BENEFIT_CARDS, c as unknown as string)) ?? [],
             }
         })) ?? [],
         weatherCards: {

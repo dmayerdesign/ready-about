@@ -55,30 +55,35 @@ export enum BoatColor {
     PINK = "Pink",
 }
 export class BoatState {
-    speed: number = 0
-    turnsCompleted: number = 0
+    speed = 0
+    turnsCompleted = 0
     tack?: Tack
     pos?: XYPosition
     mostRecentMoveDir?: MoveDirection
-    hasMovedThisTurn: boolean = false
-    hasCrossedStart: boolean = false
-    hasRoundedFirstMarker: boolean = false
-    hasRoundedLastMarker: boolean = false
-    hasCrossedFinish: boolean = false
+    hasMovedThisTurn = false
+    hasCrossedStart = false
+    hasPassedFirstMarkerStoN = false
+    hasPassedFirstMarkerWtoE = false
+    hasPassedFirstMarkerNtoS = false
+    hasPassedLastMarkerWtoE = false
+    hasPassedLastMarkerNtoS = false
+    hasCrossedFinish = false
     benefitCardsDrawn: BenefitCard[] = []
     benefitCardsActive: BenefitCard[] = []
 }
 export type Speed = number
+export type SpeedLimitReason = string
 export type XYPosition = { x: number, y: number }
 export type MoveDirection = "W"|"NW"|"N"|"NE"|"E"|"SE"|"S"|"SW"
 export type WindDirection = "NW"|"NE"|"SE"|"SW"
-export type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"
+export type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"|"irons"
 export type Tack = "starboard"|"port"
 export const SPEEDS: Record<PointOfSail, number> = {
     "beat": 1,
     "beam reach": 2,
     "broad reach": 2,
-    "run": 1
+    "run": 1,
+    "irons": 0,
 }
 export enum DIR_ANGLES {
     "N" = 90,
@@ -92,12 +97,12 @@ export enum DIR_ANGLES {
 }
 export interface Course {
     starterBuoys: [XYPosition, XYPosition]
-    markerBuoys: [XYPosition, XYPosition]
+    markerBuoys: [XYPosition, XYPosition?]
 }
 
 export interface BenefitCard {
     name: string
-    titleText: string | string[]
+    titleText: string
     bodyText: string
     copiesInDeck: number
     canBePlayed: (myBoat: Boat, game: Game) => boolean
@@ -111,7 +116,7 @@ export interface BenefitCard {
         getHistory: (count: number) => Promise<Game[]>
     }) => Promise<void>
     render: (titleText: string, bodyText: string) => any
-    activeUntil: (oldState: { myBoat: Boat, game: Game }, newState: { myBoat: Boat, game: Game }) => boolean
+    activeUntil: (oldState: { myBoat?: Boat, game?: Game }, newState: { myBoat: Boat, game: Game }) => boolean
 }
 
 export interface WeatherCard {
@@ -126,12 +131,12 @@ export interface WeatherCard {
         dispatchCommand: (command: GameCommand) => void
         dispatchGameEvent: (event: GameEvent) => void
     }) => Promise<void>
-    undo: (params: {
-        myBoat: Boat
-        game: Game
-        updateGame: (newState: Game) => Promise<void>
-        getHistory: (count: number) => Promise<Game[]>
-    }) => Promise<void>
+    // undo: (params: {
+    //     myBoat: Boat
+    //     game: Game
+    //     updateGame: (newState: Game) => Promise<void>
+    //     getHistory: (count: number) => Promise<Game[]>
+    // }) => Promise<void>
     render: (titleText: string, bodyText: string) => any
 }
 
@@ -150,6 +155,7 @@ export interface DrawBenefitCard extends AbstractCommand<BenefitCard> { name: "D
 export interface PlayBenefitCard extends AbstractCommand<BenefitCard> { name: "PlayBenefitCard" }
 export interface MoveMe1SpaceDownwindForFree extends AbstractCommand { name: "MoveMe1SpaceDownwindForFree" }
 export interface ChangeWindOriginDir extends AbstractCommand<WindDirection> { name: "ChangeWindOriginDir" }
+export interface BeginTurnCycle extends AbstractCommand { name: "BeginTurnCycle" }
 /** Meant to be dispatched by any turn-ending event */
 export interface EndTurnAndCycle extends AbstractCommand { name: "EndTurnAndCycle" }
 export type GameCommand =
@@ -164,6 +170,7 @@ export type GameCommand =
     | PlayBenefitCard
     | MoveMe1SpaceDownwindForFree
     | ChangeWindOriginDir
+    | BeginTurnCycle
     | EndTurnAndCycle
 
 export interface INeedToChooseMyBoat extends AbstractEvent { name: "INeedToChooseMyBoat" }
@@ -218,6 +225,9 @@ export function getPointOfSailAndTack(
     windOriginDir?: MoveDirection,
     boatState?: BoatState
 ): [PointOfSail, Tack] {
+    if (currentMoveDir === windOriginDir) {
+        return ["irons", boatState?.tack ?? "starboard"]
+    }
     if (
         (currentMoveDir == "N" && windOriginDir == "NE") ||
         (currentMoveDir == "NE" && windOriginDir == "E") ||
@@ -320,11 +330,11 @@ export function getPos1SpaceThisDir(here: XYPosition, dir: MoveDirection): XYPos
         case "N": return { x: here.x, y: here.y + 1 }
         case "NE": return { x: here.x + 1, y: here.y + 1 }
         case "E": return { x: here.x + 1, y: here.y }
-        case "SE": return { x: here.x - 1, y: here.y + 1 }
-        case "S": return { x: here.x - 1, y: here.y }
+        case "SE": return { x: here.x + 1, y: here.y - 1 }
+        case "S": return { x: here.x, y: here.y - 1 }
         case "SW": return { x: here.x - 1, y: here.y - 1 }
-        case "W": return { x: here.x, y: here.y - 1 }
-        case "NW": return { x: here.x + 1, y: here.y - 1 }
+        case "W": return { x: here.x - 1, y: here.y }
+        case "NW": return { x: here.x - 1, y: here.y + 1 }
         default: return { ...here }
     }
 }
@@ -367,15 +377,6 @@ export function getMoveDir(here: XYPosition, there: XYPosition): MoveDirection |
         return "W"
     }
     return undefined
-}
-
-export function getLineSegmentFollowingLineToEdge(a: XYPosition, b: XYPosition, edgeY: number): [XYPosition, XYPosition] {
-    const slope = (b.y - a.y) / (b.x - a.x)
-    const y1 = b.y
-    const x1 = b.x
-    const y2 = edgeY
-    const x2 = ((y2 - y1) / slope) + x1
-    return [{ x: x1, y: y1 }, { x: x2, y: y2 }]
 }
 
 /**
@@ -464,5 +465,5 @@ export function whoHasRightOfWay(windOriginDir: WindDirection, movingBoat: Boat,
     ) {
         return [movingBoat, `${movingBoat.settings.name} has right of way (leeward)`]
     }
-    return [stationaryBoat, `Neither boat has right of way, but ${stationaryBoat.settings.name} was here first`]
+    return [stationaryBoat, `${stationaryBoat.settings.name} has right of way (was here first)`]
 }

@@ -4,7 +4,6 @@ import makeGameId from '../../logic/make-game-id';
 @Component({
   tag: 'app-home',
   styleUrl: 'app-home.css',
-  shadow: true,
 })
 export class AppHome {
   public render() {

@@ -6,7 +6,7 @@ export const WEATHER_CARDS: WeatherCard[] = [
         name: "NOTHING_HAPPENS",
         titleText: "Smooth sailing",
         bodyText: "Nothing happens.",
-        copiesInDeck: 30,
+        copiesInDeck: 36,
         render: (title, body) => (
             <div class="weather-card-inner">
                 <h3>{title}</h3>
@@ -14,10 +14,20 @@ export const WEATHER_CARDS: WeatherCard[] = [
             </div>
         ),
         reveal: async () => {},
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(2))[1]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame, game }) => {
+        //     const prevGame = (await getHistory(3))[2]
+        //     await updateGame({
+        //         ...prevGame,
+        //         boats: prevGame.boats.map(prevBoat => ({
+        //             ...prevBoat,
+        //             state: {
+        //                 ...prevBoat.state,
+        //                 benefitCardsActive: game.boats.find(b => b.boatId === prevBoat.boatId)!.state.benefitCardsActive,
+        //                 benefitCardsDrawn: game.boats.find(b => b.boatId === prevBoat.boatId)!.state.benefitCardsDrawn,
+        //             },
+        //         }))
+        //     })
+        // },
     },
     {
         name: "WIND_DIR_CHANGES_NW",
@@ -31,10 +41,10 @@ export const WEATHER_CARDS: WeatherCard[] = [
             </div>
         ),
         reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "ChangeWindOriginDir", payload: "NW" }),
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(3))[2]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(4))[3]
+        //     await updateGame({ ...prevGame })
+        // },
     },
     {
         name: "WIND_DIR_CHANGES_NE",
@@ -48,10 +58,10 @@ export const WEATHER_CARDS: WeatherCard[] = [
             </div>
         ),
         reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "ChangeWindOriginDir", payload: "NE" }),
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(3))[2]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(4))[3]
+        //     await updateGame({ ...prevGame })
+        // },
     },
     {
         name: "WIND_DIR_CHANGES_SE",
@@ -65,10 +75,10 @@ export const WEATHER_CARDS: WeatherCard[] = [
             </div>
         ),
         reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "ChangeWindOriginDir", payload: "SE" }),
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(3))[2]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(4))[3]
+        //     await updateGame({ ...prevGame })
+        // },
     },
     {
         name: "WIND_DIR_CHANGES_SW",
@@ -82,16 +92,16 @@ export const WEATHER_CARDS: WeatherCard[] = [
             </div>
         ),
         reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "ChangeWindOriginDir", payload: "SW" }),
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(3))[2]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(4))[3]
+        //     await updateGame({ ...prevGame })
+        // },
     },
     {
         name: "NO_MOVE_ALLOWED",
         titleText: "Course correction",
         bodyText: "This turn you may draw and/or play a “sailor’s delight” card, but you may not move.",
-        copiesInDeck: 5,
+        copiesInDeck: 4,
         render: (title, body) => (
             <div class="weather-card-inner">
                 <h3>{title}</h3>
@@ -99,10 +109,10 @@ export const WEATHER_CARDS: WeatherCard[] = [
             </div>
         ),
         reveal: async ({ dispatchGameEvent }) => dispatchGameEvent({ name: "IAmNotAllowedToMoveThisTurn" }),
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(2))[1]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(2))[1]
+        //     await updateGame({ ...prevGame })
+        // },
     },
     {
         name: "ADD_1_SPEED",
@@ -116,51 +126,88 @@ export const WEATHER_CARDS: WeatherCard[] = [
             </div>
         ),
         reveal: async () => {},
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(2))[1]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(2))[1]
+        //     await updateGame({ ...prevGame })
+        // },
     },
     {
-        name: "GET_BLOWN_DOWNWIND",
-        titleText: [
-            "There’s a freak wave and you capsize!",
-            "Someone cleated the main sheet!",
-            "You hit a reef!",
-            "Man overboard!",
-        ],
+        name: "GET_BLOWN_DOWNWIND_1",
+        titleText: "There’s a freak wave and you capsize!",
         bodyText: "Move 1 space directly downwind if the space is available (does not cost speed) and continue as if you started this turn there.",
-        copiesInDeck: 4,
-        render: (titles, body) => (
+        copiesInDeck: 1,
+        render: (title, body) => (
             <div class="weather-card-inner">
-                <h3>{titles[Math.floor(Math.random() * titles.length)]}</h3>
+                <h3>{title}</h3>
                 <p>{body}</p>
             </div>
         ),
         reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "MoveMe1SpaceDownwindForFree" }),
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(3))[2]
-            await updateGame({ ...prevGame })
-        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(4))[3]
+        //     await updateGame({ ...prevGame })
+        // },
     },
     {
-        name: "TURN_OVER",
-        titleText: [
-            "Your mast breaks!",
-            "The wind dies.",
-        ],
-        bodyText: "Your turn is over.",
-        copiesInDeck: 2,
-        render: (titles, body) => (
+        name: "GET_BLOWN_DOWNWIND_2",
+        titleText: "Someone cleated the main sheet!",
+        bodyText: "Move 1 space directly downwind if the space is available (does not cost speed) and continue as if you started this turn there.",
+        copiesInDeck: 1,
+        render: (title, body) => (
             <div class="weather-card-inner">
-                <h3>{titles[Math.floor(Math.random() * titles.length)]}</h3>
+                <h3>{title}</h3>
                 <p>{body}</p>
             </div>
         ),
-        reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "EndTurnAndCycle" }),
-        undo: async ({ getHistory, updateGame }) => {
-            const prevGame = (await getHistory(6))[5]
-            await updateGame({ ...prevGame })
+        reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "MoveMe1SpaceDownwindForFree" }),
+    },
+    {
+        name: "GET_BLOWN_DOWNWIND_3",
+        titleText: "You hit a reef!",
+        bodyText: "Move 1 space directly downwind if the space is available (does not cost speed) and continue as if you started this turn there.",
+        copiesInDeck: 1,
+        render: (title, body) => (
+            <div class="weather-card-inner">
+                <h3>{title}</h3>
+                <p>{body}</p>
+            </div>
+        ),
+        reveal: async ({ dispatchCommand }) => dispatchCommand({ name: "MoveMe1SpaceDownwindForFree" }),
+    },
+    {
+        name: "TURN_OVER_1",
+        titleText: "Your mast breaks!",
+        bodyText: "Your turn is over.",
+        copiesInDeck: 1,
+        render: (title, body) => (
+            <div class="weather-card-inner">
+                <h3>{title}</h3>
+                <p>{body}</p>
+            </div>
+        ),
+        reveal: async ({ dispatchCommand }) => {
+            await new Promise(resolve => setTimeout(resolve, 4000))
+            dispatchCommand({ name: "EndTurnAndCycle" })
+        },
+        // undo: async ({ getHistory, updateGame }) => {
+        //     const prevGame = (await getHistory(7))[6]
+        //     await updateGame({ ...prevGame })
+        // },
+    },
+    {
+        name: "TURN_OVER_2",
+        titleText: "The wind dies.",
+        bodyText: "Your turn is over.",
+        copiesInDeck: 1,
+        render: (title, body) => (
+            <div class="weather-card-inner">
+                <h3>{title}</h3>
+                <p>{body}</p>
+            </div>
+        ),
+        reveal: async ({ dispatchCommand }) => {
+            await new Promise(resolve => setTimeout(resolve, 4000))
+            dispatchCommand({ name: "EndTurnAndCycle" })
         },
     },
 ]

@@ -1,11 +1,11 @@
 import { collection, CollectionReference, doc, DocumentReference, Firestore, FirestoreError, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, where } from "firebase/firestore";
-import { difference } from "lodash";
+import { difference, isEqual } from "lodash";
 import { Subject } from "rxjs";
 import { v4 as uuid } from "uuid";
 import { BENEFIT_CARDS } from "../data/benefit-cards";
 import { gameToRecord, recordToGame } from "../data/marshalling";
 import { WEATHER_CARDS } from "../data/weather-cards";
-import { BenefitCard, Boat, BoatColor, BoatSettings, BoatState, ControlPanel, Course, createDeck, DIR_ANGLES, Game, GameCommand, GameEvent, getBoatsBlockingMyWind, getLineSegmentFollowingLineToEdge, getPointOfSailAndTack, getPos1SpaceThisDir, moveCrossesLineSegment, MoveDirection, Speed, SPEEDS, Tack, whoHasRightOfWay, WindDirection, XYPosition } from "./model";
+import { BenefitCard, Boat, BoatColor, BoatSettings, BoatState, ControlPanel, Course, createDeck, DIR_ANGLES, Game, GameCommand, GameEvent, getBoatsBlockingMyWind, getPointOfSailAndTack, getPos1SpaceThisDir, moveCrossesLineSegment, MoveDirection, Speed, SpeedLimitReason, SPEEDS, Tack, whoHasRightOfWay, WindDirection, XYPosition } from "./model";
 
 export function constructLoadGame(
     _boardSize: number,
@@ -22,12 +22,12 @@ export function constructLoadGame(
     _setDoc: typeof setDoc,
     _onSnapshot: typeof onSnapshot,
 ) {
-    return async function loadGame(
+    return function loadGame(
         gameId: string,
         onGameChange: (state: Game) => void,
         onGameEvent: (event: GameEvent) => void,
         patchGameControls: (update: Partial<ControlPanel>) => void
-    ): Promise<{
+    ): {
         getMyBoat: () => Boat | undefined,
         iAmOwner: () => boolean,
         myTurn: () => boolean,
@@ -35,8 +35,9 @@ export function constructLoadGame(
         getPotentialSpeedAndTack: (dir: MoveDirection) => [Speed, Tack | undefined, string | undefined],
         replayGame: () => Promise<void>,
         getAvailableBoatColors: () => BoatColor[],
-    }> {
+    } {
         let game!: Game
+        let lazyGame: Game | undefined
         let myBoatId!: string
         const gameDocRef = _doc(_store, "games", gameId!) as DocumentReference<Game>
         const gameLogsCollectionRef = _collection(_store, "game-logs") as CollectionReference<{
@@ -53,71 +54,78 @@ export function constructLoadGame(
         setInterval(() => {
             if (dbWritesSinceLastCheck >= 20) {
                 emergencyStopWrites = true
+                console.error("The volume of writes indicates there might be an infinite loop! Shutting down")
             }
             dbWritesSinceLastCheck = 0
-        }, 5)
+        }, 1000)
 
         // Emit events so the UI knows what's happening when
         emitEvent$.subscribe(onGameEvent)
         // Get or create the game
-        game = recordToGame((await _getDoc(gameDocRef))?.data())!
-        console.log("got game", game)
-        if (game == undefined && gameId !== undefined) {
-            game = {
-                gameId,
-                boats: [],
-                turnOrder: [],
-                weatherCards: { deck: createDeck(WEATHER_CARDS), revealed: [] },
-                benefitCards: { deck: createDeck(BENEFIT_CARDS), discarded: [] },
+        _getDoc(gameDocRef).then(async (docSnap) => {
+            game = recordToGame(docSnap.data())!
+            lazyGame = game
+            console.log("got game", game)
+            if (game == undefined && gameId !== undefined) {
+                game = {
+                    gameId,
+                    boats: [],
+                    turnOrder: [],
+                    weatherCards: { deck: createDeck(WEATHER_CARDS), revealed: [] },
+                    benefitCards: { deck: createDeck(BENEFIT_CARDS), discarded: [] },
+                }
+                await updateGame(game) // Creates the game
+                console.log("created game", game)
             }
-            await updateGame(game) // Creates the game
-            console.log("created game", game)
-        }
-        // Get the saved boat ID
-        myBoatId = _localStorage.getItem(`ready-about.${gameId}.boat-id`) ?? ""
-        // If no boat ID, prompt the user to choose their boat
-        if (myBoatId === "") {
-            // Don't await the promise
-            resolveGameEvent({ name: "INeedToChooseMyBoat" }, game, updateGame)
-        }
-        // Emit a state update and listen for updates to emit
-        onGameChange(game)
-        _onSnapshot<Game>(gameDocRef, {
-            next: (snapshot) => {
-                resolveDBChange(game, recordToGame(snapshot.data())!, updateGame)
-            },
-            error: (error: FirestoreError) => console.error(error),
+            // Get the saved boat ID
+            myBoatId = _localStorage.getItem(`ready-about.${gameId}.boat-id`) ?? ""
+            // If no boat ID, prompt the user to choose their boat
+            if (myBoatId === "") {
+                // Don't await the promise
+                resolveGameEvent({ name: "INeedToChooseMyBoat" })
+            }
+            // Emit a state update and listen for updates to emit
+            onGameChange(game)
+            _onSnapshot<Game>(gameDocRef, {
+                next: (snapshot) => {
+                    resolveDBChange(recordToGame(snapshot.data())!)
+                },
+                error: (error: FirestoreError) => console.error(error),
+            })
         })
 
-        async function updateGame(newState: Game): Promise<void> {
-            console.log("updating game...", newState)
-            if (!emergencyStopWrites) {
-                console.log("setting game", newState)
-                dbWritesSinceLastCheck++
-                // Eagerly update the game in memory
-                game = newState
-                onGameChange(game)
-                // Asynchronously save the log document
-                const logTime = Date.now()
-                _setDoc(_doc(gameLogsCollectionRef, `${gameId}@${logTime}`), {
-                    gameId: gameId,
-                    takenAt: logTime,
-                    game: gameToRecord(newState),
-                })
-                // Synchronously save the game document
-                await _setDoc(gameDocRef, gameToRecord(newState))
-            }
+        async function updateGame(gameUpdate: Partial<Game>): Promise<void> {
+            console.log("updating game...", gameUpdate)
+
+            if (emergencyStopWrites) return
+            dbWritesSinceLastCheck++
+            console.log("writes since last check?", dbWritesSinceLastCheck)
+
+            // Eagerly update the UI
+            game = { ...game, ...gameUpdate }
+            onGameChange(game)
+            
+            // Asynchronously save the log document
+            const logTime = Date.now()
+            _setDoc(_doc(gameLogsCollectionRef, `${gameId}@${logTime}`), {
+                gameId: gameId,
+                takenAt: logTime,
+                game: gameToRecord(game),
+            })
+            
+            // Synchronously save the game document
+            await _setDoc(gameDocRef, gameToRecord(gameUpdate), { merge: true })
         }
 
         function dispatchCommand(command: GameCommand): void {
-            resolveGameCommand(command, game, updateGame)
+            resolveGameCommand(command)
         }
 
         function dispatchGameEvent(event: GameEvent): void {
-            resolveGameEvent(event, game, updateGame)
+            resolveGameEvent(event)
         }
 
-        function getPotentialSpeedAndTack(dir: MoveDirection): [Speed, Tack | undefined, string | undefined] {
+        function getPotentialSpeedAndTack(dir: MoveDirection): [Speed, Tack | undefined, SpeedLimitReason] {
             const myBoat = getMyBoat()
             let speed = 0
 
@@ -135,17 +143,28 @@ export function constructLoadGame(
             speed = SPEEDS[pointOfSail]
             const targetPos = getPos1SpaceThisDir(myBoat.state.pos, dir)
 
+            // Irons is a no-go
+            if (pointOfSail === "irons") {
+                return [0, tack, "Sailing directly into the wind is not possible"]
+            }
+
+            // Account for the effects of the NO_MOVE_ALLOWED weather card
+            const weatherCard = [ ...game.weatherCards.revealed ].pop()
+            if (weatherCard?.name === "NO_MOVE_ALLOWED") {
+                return [0, tack, `You revealed "${weatherCard.titleText}", so you cannot move this turn`]
+            }
+
             // Leaving the board is not allowed
             if (targetPos.x >= _boardSize || targetPos.y >= _boardSize) {
                 return [0, tack, "Not a valid space"]
             }
 
             // Colliding with buoys is not allowed
-            const buoyInMyWay = [ ...game.course!.markerBuoys, ...game.course!.starterBuoys ].find((buoyPos) => buoyPos === targetPos)
+            const buoyInMyWay = [ ...game.course!.markerBuoys, ...game.course!.starterBuoys ].find((buoyPos) => isEqual(buoyPos, targetPos))
             if (buoyInMyWay) return [0, tack, "Colliding with a buoy is not allowed"]
 
             // Colliding with other boats is not allowed...
-            const boatInMyWay = game.boats.find(({ state }) => state.pos === targetPos)
+            const boatInMyWay = game.boats.find(({ state }) => isEqual(state.pos, targetPos))
             if (boatInMyWay) {
                 // ...UNLESS you have the right of way
                 const [boatWithRightOfWay, reason] = whoHasRightOfWay(game.windOriginDir, myBoat, boatInMyWay)
@@ -165,12 +184,6 @@ export function constructLoadGame(
                 if (moveCrossesLineSegment(myBoat.state.pos, getPos1SpaceThisDir(myBoat.state.pos, dir), game.course!.starterBuoys).includes("N")) {
                     return [0, tack, "You cannot cross the starting line before your 4th move"]
                 }
-            }
-
-            // Account for the effects of the “weather” card on your speed
-            const weatherCard = [ ...game.weatherCards.revealed ].pop()
-            if (weatherCard?.name === "NO_MOVE_ALLOWED") {
-                return [0, tack, `You revealed "${weatherCard.name}", so you cannot move this turn`]
             }
 
             // If you have 2 or more speed at this point, and it is not your first turn of the game:
@@ -193,7 +206,7 @@ export function constructLoadGame(
             let boatsBlockingMyWindNow: Boat[] = []
             let boatsBlockingMyWindDuringMove: Boat[] = []
             for (let movesAway = 0; movesAway <= speed; movesAway++) {
-                const boatsBlockingMyWindThisMove = getBoatsBlockingMyWind(nextTargetPos, game)
+                const boatsBlockingMyWindThisMove = getBoatsBlockingMyWind(nextTargetPos, game).filter(b => b.boatId !== myBoatId)
                 if (boatsBlockingMyWindThisMove.length > 0) {
                     speed = Math.max(0, speed - 1)
                 }
@@ -208,11 +221,18 @@ export function constructLoadGame(
                 return [
                     speed,
                     tack,
-                    boatsBlockingMyWindDuringMove.length > 0
+                    boatsBlockingMyWindDuringMove.length > 1
                         ? "Your wind is blocked by other boats in this direction"
-                        : boatsBlockingMyWindNow.map(({ settings }) => settings.name).join(" and ") +
+                    : boatsBlockingMyWindDuringMove.length > 0
+                        ? boatsBlockingMyWindNow.map(({ settings }) => settings.name).join(" and ") +
                             (boatsBlockingMyWindNow.length > 1 ? " are " : " is ") + "blocking your wind"
+                    : ""
                 ]
+            }
+
+            // Account for the effects of the ADD_1_SPEED weather card
+            if (weatherCard?.name === "ADD_1_SPEED") {
+                speed++
             }
 
             return [speed, tack, ""]
@@ -220,17 +240,15 @@ export function constructLoadGame(
 
         async function resolveGameCommand(
             command: GameCommand,
-            game: Game,
-            updateGame: (newState: Game) => Promise<void>,
         ): Promise<void> {
             console.log("dispatched command", command)
             patchGameControls({ updating: true })
-            const [ events, commands ] = await dispatchGameCommand(command, game, updateGame)
+            const [ events, commands ] = await dispatchGameCommand(command)
             for (const event of events) {
-                await resolveGameEvent(event, game, updateGame)
+                await resolveGameEvent(event)
             }
             for (const command of commands) {
-                await resolveGameCommand(command, game, updateGame)
+                await resolveGameCommand(command)
             }
             patchGameControls({ updating: false })
             console.log("resolved command", command)
@@ -238,77 +256,47 @@ export function constructLoadGame(
         
         async function resolveGameEvent(
             event: GameEvent,
-            game: Game,
-            updateGame: (newState: Game) => Promise<void>,
         ): Promise<void> {
             console.log("dispatched event", event)
             patchGameControls({ updating: true })
             emitEvent$.next(event)
-            const [ events, commands ] = await handleGameEvent(event, game, updateGame)
+            const [ events, commands ] = await handleGameEvent(event)
             for (const event of events) {
-                await resolveGameEvent(event, game, updateGame)
+                await resolveGameEvent(event)
             }
             for (const command of commands) {
-                await resolveGameCommand(command, game, updateGame)
+                await resolveGameCommand(command)
             }
             patchGameControls({ updating: false })
             console.log("resolved event", event)
         }
         
         async function resolveDBChange(
-            oldState: Game,
             newState: Game,
-            updateGame: (newState: Game) => Promise<void>,
         ): Promise<void> {
+            const oldState = lazyGame
             console.log("resolving db change", oldState, newState)
             // Disable the UI
             patchGameControls({ updating: true })
             // Re-render the state
             game = newState
+            lazyGame = newState
             onGameChange(game)
-            // Discard active benefit cards
-            for (const boat of game.boats) {
-                const oldBoat = oldState.boats.find(({ boatId }) => boat.boatId === boatId)!
-                const activeBenefits = boat.state.benefitCardsActive
-                const activeBenefitsNow: BenefitCard[] = []
-                const discardedBenefitsNow: BenefitCard[] = game.benefitCards.discarded
-                activeBenefits.forEach((benefit) => {
-                    if (benefit.activeUntil(
-                        { myBoat: oldBoat, game: oldState },
-                        { myBoat: boat, game: game },
-                    )) {
-                        discardedBenefitsNow.push(benefit)
-                    } else {
-                        activeBenefitsNow.push(benefit)
-                    }
-                })
-                if (activeBenefits.length != activeBenefitsNow.length) {
-                    await updateGame({
-                        ...game,
-                        benefitCards: {
-                            ...game.benefitCards,
-                            discarded: discardedBenefitsNow,
-                        },
-                        boats: updateMyBoatState(game, { benefitCardsActive: activeBenefitsNow })
-                    })
-                }
-            }
             // Resolve side effects
             const [ events, commands ] = await handleDBChange(oldState, game)
             for (const event of events) {
-                await resolveGameEvent(event, game, updateGame)
+                await resolveGameEvent(event)
             }
             for (const command of commands) {
-                await resolveGameCommand(command, game, updateGame)
+                await resolveGameCommand(command)
             }
-            patchGameControls({ updating: false })
+            patchGameControls({
+                updating: false,
+                myTurn: newState.idOfBoatWhoseTurnItIs === myBoatId,
+            })
         }
         
-        async function dispatchGameCommand(
-            { name, payload }: GameCommand,
-            game: Game,
-            updateGame: (newState: Game) => Promise<void>,
-        ): Promise<[GameEvent[], GameCommand[]]> {
+        async function dispatchGameCommand({ name, payload }: GameCommand): Promise<[GameEvent[], GameCommand[]]> {
             const events: GameEvent[] = []
             const commands: GameCommand[] = []
             const myBoat = getMyBoat()
@@ -316,7 +304,6 @@ export function constructLoadGame(
             if (name === "ChooseMyBoat") {
                 myBoatId = uuid()
                 await updateGame({
-                    ...game,
                     turnOrder: [ ...game.turnOrder, myBoatId ],
                     boats: [
                         ...game.boats,
@@ -325,7 +312,7 @@ export function constructLoadGame(
                             settings: (payload as BoatSettings)!,
                             state: new BoatState()
                         },
-                    ]
+                    ],
                 })
                 _localStorage.setItem(`ready-about.${gameId}.boat-id`, myBoatId)
                 patchGameControls({ iNeedToChooseMyBoat: false })
@@ -335,7 +322,6 @@ export function constructLoadGame(
             }
             if (name === "ChooseCourse") {
                 await updateGame({
-                    ...game,
                     course: payload as Course,
                 })
                 patchGameControls({ iNeedToChooseTheCourse: false })
@@ -345,14 +331,15 @@ export function constructLoadGame(
             }
             if (name === "StartGame") {
                 await updateGame({
-                    ...game,
                     started: true,
                     idOfBoatWhoseTurnItIs: getFirstTurnBoatId(),
                 })
+                if (game.boats.length === 1) {
+                    commands.push({ name: "BeginTurnByRevealingWeatherCard" })
+                }
             }
             if (name === "ChooseBoatStartingPos") {
                 await updateGame({
-                    ...game,
                     boats: updateMyBoatState(game, {
                         pos: payload as XYPosition,
                     })
@@ -370,7 +357,6 @@ export function constructLoadGame(
                 }
                 let newReveal = [ ...weatherDeck ].pop()!
                 await updateGame({
-                    ...game,
                     weatherCards: {
                         deck: weatherDeck.slice(0, -1),
                         revealed: [ ...weatherRevealed, newReveal ],
@@ -380,7 +366,6 @@ export function constructLoadGame(
                 await newReveal.reveal({ myBoat: myBoat!, game, updateGame, dispatchCommand, dispatchGameEvent })
                 // 3. Update the turn phase
                 await updateGame({
-                    ...game,
                     currentTurnPhase: "BEFORE_MOVE",
                 })
             }
@@ -389,62 +374,63 @@ export function constructLoadGame(
                 const myBoatState = myBoat?.state!
                 const startingPos = myBoatState.pos!
                 const startingSpeed = myBoatState.hasMovedThisTurn ? myBoatState.speed : getPotentialSpeedAndTack(chosenDir!)[0]
+                const newTack = getPotentialSpeedAndTack(chosenDir!)[1]
                 const newPos = startingSpeed > 0 ? getPos1SpaceThisDir(startingPos, chosenDir!) : startingPos
                 const newSpeed = Math.max(0, startingSpeed - 1)
-                const crossedStart = myBoatState.hasCrossedStart ||
+                const hasCrossedStart = myBoatState.hasCrossedStart ||
                     moveCrossesLineSegment(startingPos, newPos, game.course!.starterBuoys).includes("N")
-                const roundedFirstMarker = moveCrossesLineSegment(
-                    startingPos,
-                    newPos,
-                    getLineSegmentFollowingLineToEdge(
-                        game.course!.starterBuoys[0],
-                        game.course!.markerBuoys[0],
-                        _boardSize,
-                    ),
-                )
-                const roundedFirstMarkerClockwise = myBoatState.hasRoundedFirstMarker ||
-                    (
-                        myBoatState.hasCrossedStart &&
-                        roundedFirstMarker.includes("E")
-                    )
-                let roundedSecondMarkerClockwise = roundedFirstMarkerClockwise
-                if (game.course!.markerBuoys.length === 2) {
-                    const roundedSecondMarker = moveCrossesLineSegment(
-                        startingPos,
-                        newPos,
-                        getLineSegmentFollowingLineToEdge(
-                            game.course!.markerBuoys[0],
-                            game.course!.markerBuoys[1],
-                            _boardSize,
-                        ),
-                    )
-                    roundedSecondMarkerClockwise = myBoatState.hasRoundedLastMarker ||
-                        (
-                            myBoatState.hasRoundedFirstMarker &&
-                            myBoatState.hasCrossedStart &&
-                            roundedSecondMarker.includes("S")
-                        )
-                }
-                const crossedFinish = myBoatState.hasCrossedFinish ||
-                    (
-                        myBoatState.hasRoundedLastMarker &&
-                        myBoatState.hasRoundedFirstMarker &&
-                        myBoatState.hasCrossedStart &&
-                        moveCrossesLineSegment(startingPos, newPos, game.course!.starterBuoys).includes("N")
-                    )
+                
+                // Assumes both markers are on the north end of the board relative to the start
+                // Assumes last marker is east of first marker
+                // TODO: Currently it's possible to follow these rules without actually rounding the buoy,
+                // by crossing the wrong way first -- but that takes longer anyway so it's not a huge deal
+                const passedMarkerStoN = (marker: XYPosition) => moveCrossesLineSegment(startingPos, newPos, [
+                    marker,
+                    {x: 0, y: marker.y},
+                ]).includes("N")
+                const passedMarkerWtoE = (marker: XYPosition) => moveCrossesLineSegment(startingPos, newPos, [
+                    marker,
+                    {x: marker.x, y: _boardSize},
+                ]).includes("E")
+                const passedMarkerNtoS = (marker: XYPosition) => moveCrossesLineSegment(startingPos, newPos, [
+                    marker,
+                    {x: _boardSize, y: marker.y},
+                ]).includes("S")
+                const firstMarker = game.course!.markerBuoys[0]
+                const lastMarker = game.course!.markerBuoys[game.course!.markerBuoys.length - 1]!
+
+                const hasPassedFirstMarkerStoN = myBoatState.hasPassedFirstMarkerStoN || passedMarkerStoN(firstMarker)
+                const hasPassedFirstMarkerWtoE = myBoatState.hasPassedFirstMarkerWtoE || passedMarkerWtoE(firstMarker)
+                const hasPassedFirstMarkerNtoS = myBoatState.hasPassedFirstMarkerNtoS || passedMarkerNtoS(firstMarker)
+                const hasPassedLastMarkerWtoE = myBoatState.hasPassedLastMarkerWtoE || passedMarkerWtoE(lastMarker)
+                const hasPassedLastMarkerNtoS = myBoatState.hasPassedLastMarkerNtoS || passedMarkerNtoS(lastMarker)
+                const hasCrossedFinish = myBoatState.hasCrossedFinish || moveCrossesLineSegment(startingPos, newPos, game.course!.starterBuoys).includes("N")
 
                 await updateGame({
-                    ...game,
                     currentTurnPhase: "MOVING",
                     boats: updateMyBoatState(game, {
                         speed: newSpeed,
                         pos: newPos,
+                        tack: newTack,
                         mostRecentMoveDir: chosenDir as MoveDirection,
                         hasMovedThisTurn: true,
-                        hasCrossedStart: crossedStart,
-                        hasRoundedFirstMarker: roundedFirstMarkerClockwise,
-                        hasRoundedLastMarker: roundedSecondMarkerClockwise,
-                        hasCrossedFinish: crossedFinish,
+                        hasCrossedStart,
+                        hasPassedFirstMarkerStoN,
+                        hasPassedFirstMarkerWtoE,
+                        hasPassedFirstMarkerNtoS,
+                        hasPassedLastMarkerWtoE,
+                        hasPassedLastMarkerNtoS,
+                        hasCrossedFinish: game.course!.markerBuoys.length === 1
+                            ? hasCrossedStart
+                                && hasPassedLastMarkerWtoE
+                                && hasPassedLastMarkerNtoS
+                                && hasCrossedFinish
+                            : hasCrossedStart
+                                && hasPassedFirstMarkerStoN
+                                && hasPassedFirstMarkerWtoE
+                                && hasPassedLastMarkerWtoE
+                                && hasPassedLastMarkerNtoS
+                                && hasCrossedFinish,
                     })
                 })
                 if (newSpeed <= 0) {
@@ -452,11 +438,10 @@ export function constructLoadGame(
                 }
             }
             if (name === "DrawBenefitCard") {
-                const deck = game.benefitCards.deck.length > 0 ? [ ...game.benefitCards.deck ] : createDeck(BENEFIT_CARDS)
+                const deck = game.benefitCards.deck.length > 0 ? [ ...game.benefitCards.deck ] : createDeck<BenefitCard>(BENEFIT_CARDS)
                 const myDrawn = [ ...myBoat!.state.benefitCardsDrawn ]
                 myDrawn.push(deck.pop()!)
                 await updateGame({
-                    ...game,
                     benefitCards: {
                         ...game.benefitCards,
                         deck,
@@ -476,7 +461,6 @@ export function constructLoadGame(
                     const benefitCardsDrawn = myBoat!.state.benefitCardsDrawn.sort(({ name }) => name === card.name ? 1 : -1)
                     const benefitCardActive = benefitCardsDrawn.pop()!
                     await updateGame({
-                        ...game,
                         boats: updateMyBoatState(game, {
                             benefitCardsDrawn,
                             benefitCardsActive: [ ...myBoat!.state.benefitCardsActive, benefitCardActive ],
@@ -488,29 +472,48 @@ export function constructLoadGame(
                         updateGame,
                         dispatchCommand,
                         dispatchGameEvent,
-                        getHistory: async (count: number) => (await _getDocs(_query(gameLogsCollectionRef, _where("gameId", "==", gameId), _orderBy("takenAt", "desc"), _limit(count)))).docs.map(doc => recordToGame(doc.data().game)!),
+                        getHistory: async (count: number) =>
+                            (await _getDocs(_query(gameLogsCollectionRef, _where("gameId", "==", gameId), _orderBy("takenAt", "desc"), _limit(count))))
+                            .docs.map(doc => recordToGame(doc.data().game)!),
                     })
                 }
             }
             if (name === "ChangeWindOriginDir" || name === "DecideInitWindOriginDir") {
                 await updateGame({
-                    ...game,
                     windOriginDir: payload as WindDirection,
                 })
                 patchGameControls({ iNeedToChooseWindOriginDir: false })
             }
+            if (name === "DecideInitWindOriginDir") {
+                commands.push({ name: "BeginTurnCycle" })
+            }
             if (name === "MoveMe1SpaceDownwindForFree") {
                 // Teleport 1 space downwind without affecting speed or tack
+                const targetPos = getPos1SpaceThisDir(myBoat!.state.pos!, DIR_ANGLES[DIR_ANGLES[game.windOriginDir!] > 0 ? DIR_ANGLES[game.windOriginDir!] - 180 : DIR_ANGLES[game.windOriginDir!] + 180] as MoveDirection)
+                const obstacles = [
+                    ...game.boats.map(b => b.state.pos),
+                    ...game.course!.starterBuoys,
+                    ...game.course!.markerBuoys,
+                ].filter(obstacle => isEqual(obstacle, targetPos))
+                
+                if (obstacles.length === 0 && !(
+                    myBoat!.state.turnsCompleted < 4
+                    && moveCrossesLineSegment(myBoat!.state.pos!, targetPos, game.course!.starterBuoys).includes("N")
+                )) {
+                    await updateGame({
+                        boats: updateMyBoatState(game, {
+                            pos: targetPos,
+                        }),
+                    })
+                }
+            }
+            if (name === "BeginTurnCycle") {
                 await updateGame({
-                    ...game,
-                    boats: updateMyBoatState(game, {
-                        pos: getPos1SpaceThisDir(myBoat!.state.pos!, DIR_ANGLES[-(DIR_ANGLES[game.windOriginDir!] - 90) + 90 || 180] as MoveDirection)
-                    }),
+                    idOfBoatWhoseTurnItIs: getNextTurnBoatId(),
                 })
             }
             if (name === "EndTurnAndCycle") {
                 await updateGame({
-                    ...game,
                     idOfBoatWhoseTurnItIs: getNextTurnBoatId(),
                     boats: updateMyBoatState(game, {
                         turnsCompleted: (myBoat?.state?.turnsCompleted ?? 0) + 1,
@@ -518,25 +521,24 @@ export function constructLoadGame(
                     }),
                 })
                 patchGameControls({
-                    myTurn: false,
                     iAmNotAllowedToMoveThisTurn: false,
                 })
+                if (game.boats.length === 1 && game.started) {
+                    commands.push({ name: "BeginTurnByRevealingWeatherCard" })
+                }
             }
             return [events, commands]
         }
         
-        async function handleGameEvent(
-            { name }: GameEvent,
-            game: Game,
-            updateGame: (newState: Game) => Promise<void>,
-        ): Promise<[GameEvent[], GameCommand[]]> {
+        async function handleGameEvent({ name }: GameEvent): Promise<[GameEvent[], GameCommand[]]> {
             const events: GameEvent[] = []
             const commands: GameCommand[] = []
             
             if (name === "MyTurnNow") {
-                await updateGame({ ...game, currentTurnPhase: "BEFORE_WEATHER" })
-                commands.push({ name: "BeginTurnByRevealingWeatherCard" })
-                patchGameControls({ myTurn: true })
+                await updateGame({ currentTurnPhase: "BEFORE_WEATHER" })
+                if (game.started) {
+                    commands.push({ name: "BeginTurnByRevealingWeatherCard" })
+                }
             }
             if (name === "INeedToChooseMyBoat") {
                 patchGameControls({ iNeedToChooseMyBoat: true })
@@ -547,18 +549,20 @@ export function constructLoadGame(
                 commands.push({
                     name: "ChooseCourse",
                     payload: {
-                        starterBuoys: [{x: 5, y: 5},{x: 15, y: 5}],
-                        markerBuoys: [{x: 5, y: 20},{x: 20, y: 16}],
+                        starterBuoys: [{x: 10, y: 7},{x: 19, y: 7}],
+                        markerBuoys: [{x: 7, y: 22},{x: 22, y: 20}],
                     }
                 })
             }
             if (name === "INeedToChooseWindOriginDir") {
                 patchGameControls({ iNeedToChooseWindOriginDir: true })
-                // Auto-select the wind origin dir
-                commands.push({
-                    name: "DecideInitWindOriginDir",
-                    payload: ["NW", "NE", "SW", "SE"][Math.floor(Math.random() * 4)] as WindDirection,
-                })
+                if (!game.windOriginDir) {
+                    // Auto-select the wind origin dir
+                    commands.push({
+                        name: "DecideInitWindOriginDir",
+                        payload: ["NW", "NE", "SW", "SE"][Math.floor(Math.random() * 4)] as WindDirection,
+                    })
+                }
             }
             if (name === "MyTurnToChooseBoatStartingPos") {
                 patchGameControls({ myTurnToChooseStartingPos: true })
@@ -569,7 +573,7 @@ export function constructLoadGame(
             return [events, commands]
         }
         
-        async function handleDBChange(oldGame: Game, newGame: Game): Promise<[GameEvent[], GameCommand[]]> {
+        async function handleDBChange(oldGame: Game | undefined, newGame: Game): Promise<[GameEvent[], GameCommand[]]> {
             const events: GameEvent[] = []
             const commands: GameCommand[] = []
             const myBoat = getMyBoat()
@@ -587,12 +591,41 @@ export function constructLoadGame(
             }
         
             // Did it just become my turn?
-            const myTurnNow = oldGame.idOfBoatWhoseTurnItIs !== myBoatId && newGame.idOfBoatWhoseTurnItIs == myBoatId
+            const myTurnNow = oldGame?.idOfBoatWhoseTurnItIs !== myBoatId && newGame.idOfBoatWhoseTurnItIs == myBoatId
             if (myTurnNow) {
                 if (myBoat?.state.pos == undefined) {
                     events.push({ name: "MyTurnToChooseBoatStartingPos" })
                 } else {
                     events.push({ name: "MyTurnNow" })
+                }
+            }
+
+            // TODO: If I exited before revealing the weather card and then reloaded the screen, continue
+
+            // Discard active benefit cards
+            if (myBoat) {
+                const oldBoat = oldGame?.boats.find(({ boatId }) => myBoat.boatId === boatId)!
+                const activeBenefits = myBoat.state.benefitCardsActive
+                const activeBenefitsNow: BenefitCard[] = []
+                const discardedBenefitsNow: BenefitCard[] = game.benefitCards.discarded
+                activeBenefits.forEach((benefit) => {
+                    if (benefit.activeUntil(
+                        { myBoat: oldBoat, game: oldGame },
+                        { myBoat: myBoat, game: game },
+                    )) {
+                        discardedBenefitsNow.push(benefit)
+                    } else {
+                        activeBenefitsNow.push(benefit)
+                    }
+                })
+                if (activeBenefits.length != activeBenefitsNow.length) {
+                    await updateGame({
+                        benefitCards: {
+                            ...game.benefitCards,
+                            discarded: discardedBenefitsNow,
+                        },
+                        boats: updateMyBoatState(game, { benefitCardsActive: activeBenefitsNow })
+                    })
                 }
             }
         
@@ -652,7 +685,14 @@ export function constructLoadGame(
         }
 
         function getAvailableBoatColors(): BoatColor[] {
-            const allColors: BoatColor[] = [BoatColor.RED, BoatColor.BLUE, BoatColor.YELLOW, BoatColor.GREEN, BoatColor.PURPLE, BoatColor.PINK]
+            const allColors: BoatColor[] = [
+                BoatColor.RED,
+                BoatColor.BLUE,
+                BoatColor.YELLOW,
+                BoatColor.GREEN,
+                BoatColor.PURPLE,
+                BoatColor.PINK,
+            ]
             return difference(allColors, game.boats.map(({ settings }) => settings.color))
         }
 

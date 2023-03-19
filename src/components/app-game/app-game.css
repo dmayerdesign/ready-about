@@ -1,8 +1,98 @@
-.app-game {
+.app-home, .app-game {
   padding: 10px;
 }
+.game-board-container {
+  position: relative;
+  margin-top: 80px;
+  margin-bottom: 150px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.telltale {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  background-image: url(/assets/board/wind-dir-bg-nw.svg);
+  background-size: cover;
+}
+.telltale-text {
+  position: absolute;
+  font-family: sans-serif;
+  font-weight: bold;
+  color: white;
+  font-size: 20px;
+}
+
+.compass-rose-bg {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: -1;
+  width: 285px;
+  height: 285px;
+  margin-left: -142.5px;
+  background-size: cover;
+}
+.control-panel-container {
+  width: 500px;
+  flex-basis: 500px;
+  min-width: 500px;
+  margin-top: 80px;
+}
+.control-panel-inner {
+  position: relative;
+  width: 380px;
+  height: 380px;
+  margin-bottom: 30px;
+  margin-right: 120px;
+  padding-top: 30px;
+}
+
+.control-panel-inner > * {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.prompt-box {
+  background-color: var(--pale-navy);
+  width: 212px;
+  padding: 10px 0 15px;
+}
+.prompt-top-line {
+  font-family: Yellowtail, Arial, Helvetica, sans-serif;
+  font-size: 20px;
+  text-transform: lowercase;
+  color: white;
+}
+.prompt-bottom-line {
+  font-family: Inter, Arial, Helvetica, sans-serif;
+  font-size: 17px;
+  line-height: 17px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: white;
+  letter-spacing: 1px;
+}
+.prompt-bottom-line input {
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 17px;
+  line-height: 17px;
+  color: white;
+  text-transform: uppercase;
+  background: transparent;
+  border: none;
+  outline: none;
+  text-align: center;
+}
+.boat-preview {
+  margin-top: 14px;
+}
+
 .game-board {
-  float: left;
   position: relative;
   box-sizing: content-box;
 }
@@ -20,11 +110,38 @@
   outline: none !important;
 }
 .dot {
-  background-color: #dfeefa;
+  /* background-color: #dfeefa; */
+  background-color: #DFEEFA;
   border-radius: 5px;
   width: 6px;
   height: 6px;
 }
+.boat {
+  transition: left 0.6s ease-in-out, right 0.6s ease-in-out, top 0.6s ease-in-out, bottom 0.6s ease-in-out;
+}
+.buoy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+
+  width: 14px;
+  height: 14px;
+  transform: translate(3px, -3px);
+  border-radius: 8px;
+  border: 2px solid black;
+}
+.marker-buoy {
+  background: white;
+}
+.port-buoy {
+  background: #ee6655;
+}
+.starboard-buoy {
+  background: #44ee66;
+}
+
+
 
 /* Hide from sighted users (screen reader only) */
 .sr-only {
