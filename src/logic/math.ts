@@ -1,4 +1,4 @@
-type PointXY = [number, number]
+type PointXY = { x: number, y: number }
 // m = (y_2 - y_1) / (x_2 - x_1)
 // d = sqrt((x_2 - x_1)^2 + (y_2 - y_1)^2)
 
@@ -16,44 +16,40 @@ export function findWhereRayIntersectsCircle([origin, otherLineEndPoint]: [Point
     const lineLength = v.length();    
     if (lineLength === 0) throw new Error("Length has to be positive");
     v = v.normalize();
-    return vectorToPoint(new Vector(origin).add(v.multiplyScalar(radius)))
-}
-
-function vectorToPoint(vector: Vector): PointXY {
-    return [vector.x, vector.y]
+    return new Vector(origin).add(v.multiplyScalar(radius))
 }
 
 class Vector {
     public x!: number
     public y!: number
 
-    public constructor([x, y]: PointXY) {
+    public constructor({x, y}: PointXY) {
         this.x = x ?? 0
         this.y = y ?? 0
     }
 
     public add(vector: Vector) {
-        return new Vector([this.x + vector.x, this.y + vector.y])
+        return new Vector({ x: this.x + vector.x, y: this.y + vector.y })
     }
 
     public subtract(vector: Vector) {
-        return new Vector([this.x - vector.x, this.y - vector.y])
+        return new Vector({ x: this.x - vector.x, y: this.y - vector.y })
     }
 
     public multiply(vector: Vector) {
-        return new Vector([this.x * vector.x, this.y * vector.y])
+        return new Vector({ x: this.x * vector.x, y: this.y * vector.y })
     }
 
     public multiplyScalar(scalar: number) {
-        return new Vector([this.x * scalar, this.y * scalar])
+        return new Vector({ x: this.x * scalar, y: this.y * scalar })
     }
 
     public divide(vector: Vector) {
-        return new Vector([this.x / vector.x, this.y / vector.y])
+        return new Vector({ x: this.x / vector.x, y: this.y / vector.y })
     }
 
     public divideScalar(scalar: number) {
-        return new Vector([this.x / scalar, this.y / scalar])
+        return new Vector({ x: this.x / scalar, y: this.y / scalar })
     }
 
     public length() {
@@ -69,10 +65,10 @@ class Vector {
 // Determine the intersection point of two line segments
 // Return FALSE if the lines don't intersect
 export function intersect([p1, p2]: [PointXY, PointXY], [p3, p4]: [PointXY, PointXY]): PointXY | undefined {
-    const [ x1, y1 ] = p1
-    const [ x2, y2 ] = p2
-    const [ x3, y3 ] = p3
-    const [ x4, y4 ] = p4
+    const { x: x1, y: y1 } = p1
+    const { x: x2, y: y2 } = p2
+    const { x: x3, y: y3 } = p3
+    const { x: x4, y: y4 } = p4
 
     // Check if none of the lines are of length 0
     if ((x1 === x2 && y1 === y2) || (x3 === x4 && y3 === y4)) {
@@ -97,7 +93,7 @@ export function intersect([p1, p2]: [PointXY, PointXY], [p3, p4]: [PointXY, Poin
     const x = x1 + ua * (x2 - x1)
     const y = y1 + ua * (y2 - y1)
 
-    return [x, y]
+    return {x, y}
 }
 // Found another good one at https://www.geeksforgeeks.org/check-if-two-given-line-segments-intersect
 // but it only gives you true or false, and also isn't as compact as this.

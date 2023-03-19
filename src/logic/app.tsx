@@ -94,14 +94,17 @@ export function constructLoadGame(
             if (!emergencyStopWrites) {
                 console.log("setting game", newState)
                 dbWritesSinceLastCheck++
-                // Asynchronously write to the log
+                // Eagerly update the game in memory
+                game = newState
+                onGameChange(game)
+                // Asynchronously save the log document
                 const logTime = Date.now()
                 _setDoc(_doc(gameLogsCollectionRef, `${gameId}@${logTime}`), {
                     gameId: gameId,
                     takenAt: logTime,
                     game: gameToRecord(newState),
                 })
-                // Synchronously update the game
+                // Synchronously save the game document
                 await _setDoc(gameDocRef, gameToRecord(newState))
             }
         }
@@ -133,7 +136,7 @@ export function constructLoadGame(
             const targetPos = getPos1SpaceThisDir(myBoat.state.pos, dir)
 
             // Leaving the board is not allowed
-            if (targetPos[0] >= _boardSize || targetPos[1] >= _boardSize) {
+            if (targetPos.x >= _boardSize || targetPos.y >= _boardSize) {
                 return [0, tack, "Not a valid space"]
             }
 
@@ -311,19 +314,20 @@ export function constructLoadGame(
             const myBoat = getMyBoat()
         
             if (name === "ChooseMyBoat") {
-                const boatId = uuid()
+                myBoatId = uuid()
                 await updateGame({
                     ...game,
-                    turnOrder: [ ...game.turnOrder, boatId ],
+                    turnOrder: [ ...game.turnOrder, myBoatId ],
                     boats: [
                         ...game.boats,
                         {
-                            boatId,
+                            boatId: myBoatId,
                             settings: (payload as BoatSettings)!,
                             state: new BoatState()
                         },
                     ]
                 })
+                _localStorage.setItem(`ready-about.${gameId}.boat-id`, myBoatId)
                 patchGameControls({ iNeedToChooseMyBoat: false })
                 if (iAmOwner()) {
                     events.push({ name: "INeedToChooseTheCourse" })
@@ -543,8 +547,8 @@ export function constructLoadGame(
                 commands.push({
                     name: "ChooseCourse",
                     payload: {
-                        starterBuoys: [[5,5],[15,5]],
-                        markerBuoys: [[5,20],[20,16]],
+                        starterBuoys: [{x: 5, y: 5},{x: 15, y: 5}],
+                        markerBuoys: [{x: 5, y: 20},{x: 20, y: 16}],
                     }
                 })
             }

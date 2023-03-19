@@ -104,35 +104,30 @@ export class AppGame implements ComponentDidLoad {
 
   private renderGameBoard() {
     return <div class="game-board" style={{
-      float: "left",
-      position: "relative",
       width: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
       height: `${(CELL_SIZE_PX * BOARD_SIZE)}px`,
-      boxSizing: "content-box",
     }}>
       <div class="grid-layer">
         {this.grid.map(row => <div class="row">
           {row.map(cell => <div class="cell"
             style={{
               position: "absolute",
-              left: `${this.posToPx(cell[0])}px`,
-              bottom: `${this.posToPx(cell[1])}px`,
+              left: `${this.posToPx(cell.x)}px`,
+              bottom: `${this.posToPx(cell.y)}px`,
               width: CELL_SIZE_PX + "px",
               height: CELL_SIZE_PX + "px",
             }}
           >
             <div class="dot"
               style={{
-                backgroundColor: "#dfeefa",
-                borderRadius: "5px",
                 cursor: this.ctrlPanel.myTurnToChooseStartingPos ? 'pointer' : 'default',
               }}
               tabIndex={this.ctrlPanel.myTurnToChooseStartingPos ? 0 : -1}
               onClick={() => this.dispatchCommand({ name: "ChooseBoatStartingPos", payload: cell })}
               onKeyDown={({ key }) => key === "Enter" && this.dispatchCommand({ name: "ChooseBoatStartingPos", payload: cell })}
             >
-              <span style={{position: "absolute", display: "block", opacity: "0", width: "0", height: "0", overflow: "hidden"}}>
-                Position X {cell[0]}, Y {cell[1]}
+              <span class="sr-only">
+                Position X {cell.x}, Y {cell.y}
               </span>
             </div>
           </div>)}
@@ -142,8 +137,8 @@ export class AppGame implements ComponentDidLoad {
         {this.game?.boats?.filter(boat => boat.state.pos).map(boat => <div class="boat"
           style={{
             position: "absolute",
-            left: `${this.posToPx(boat.state.pos![0])}px`,
-            bottom: `${this.posToPx(boat.state.pos![1])}px`,
+            left: `${this.posToPx(boat.state.pos!.x)}px`,
+            bottom: `${this.posToPx(boat.state.pos!.y)}px`,
             width: CELL_SIZE_PX + "px",
             height: CELL_SIZE_PX + "px",
             display: "flex",
@@ -190,14 +185,6 @@ export class AppGame implements ComponentDidLoad {
               }
             })}></input>
           : ''
-      }
-      {
-        this.iAmOwner()
-        ? <button
-          onClick={() => this.dispatchCommand({ name: "StartGame" })}
-          disabled={this.game.boats.some((b) => !b.state.pos)}
-        >Start Game</button>
-        : ''
       }
       <dl>
         {this.renderCtrlPanelDdDt('Game ID:', this.game.gameId ?? "----")}

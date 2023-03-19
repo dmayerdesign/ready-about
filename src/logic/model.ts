@@ -69,7 +69,7 @@ export class BoatState {
     benefitCardsActive: BenefitCard[] = []
 }
 export type Speed = number
-export type XYPosition = [number, number]
+export type XYPosition = { x: number, y: number }
 export type MoveDirection = "W"|"NW"|"N"|"NE"|"E"|"SE"|"S"|"SW"
 export type WindDirection = "NW"|"NE"|"SE"|"SW"
 export type PointOfSail = "beat"|"beam reach"|"broad reach"|"run"
@@ -193,20 +193,20 @@ export function getBoatsBlockingMyWind(myPos: XYPosition, game: Game): Boat[] {
     let twoSpacesUpwind: XYPosition;
     switch (game.windOriginDir) {
         case "NE":
-            oneSpaceUpwind = [myPos[0] + 1, myPos[1] + 1];
-            twoSpacesUpwind = [myPos[0] + 2, myPos[1] + 2];
+            oneSpaceUpwind = { x: myPos.x + 1, y: myPos.y + 1 };
+            twoSpacesUpwind = { x: myPos.x + 2, y: myPos.y + 2 };
             break;
         case "SE":
-            oneSpaceUpwind = [myPos[0] + 1, myPos[1] - 1];
-            twoSpacesUpwind = [myPos[0] + 2, myPos[1] - 2];
+            oneSpaceUpwind = { x: myPos.x + 1, y: myPos.y - 1 };
+            twoSpacesUpwind = { x: myPos.x + 2, y: myPos.y - 2 };
             break;
         case "SW":
-            oneSpaceUpwind = [myPos[0] - 1, myPos[1] - 1];
-            twoSpacesUpwind = [myPos[0] - 2, myPos[1] - 2];
+            oneSpaceUpwind = { x: myPos.x - 1, y: myPos.y - 1 };
+            twoSpacesUpwind = { x: myPos.x - 2, y: myPos.y - 2 };
             break;
         case "NW":
-            oneSpaceUpwind = [myPos[0] - 1, myPos[1] + 1];
-            twoSpacesUpwind = [myPos[0] - 2, myPos[1] + 2];
+            oneSpaceUpwind = { x: myPos.x - 1, y: myPos.y + 1 };
+            twoSpacesUpwind = { x: myPos.x - 2, y: myPos.y + 2 };
             break;
     }
     const boatsBlockingMyWind = game.boats.filter((boat) => isEqual(boat.state.pos, oneSpaceUpwind) || isEqual(boat.state.pos, twoSpacesUpwind));
@@ -295,10 +295,10 @@ export function getPointOfSailAndTack(
 
 export function createGrid(boardSize: number): XYPosition[][] {
     const grid: XYPosition[][] = []
-    for (let i = 0; i < boardSize; i++) {
+    for (let y = 0; y < boardSize; y++) {
         const row: XYPosition[] = []
-        for (let j = 0; j < boardSize; j++) {
-            row.push([j, i])
+        for (let x = 0; x < boardSize; x++) {
+            row.push({ x, y })
         }
         grid.push(row)
     }
@@ -317,31 +317,31 @@ export function createDeck<T extends BenefitCard | WeatherCard>(cards: T[]): T[]
 
 export function getPos1SpaceThisDir(here: XYPosition, dir: MoveDirection): XYPosition {
     switch (dir) {
-        case "N": return [ here[0], here[1] + 1 ]
-        case "NE": return [ here[0] + 1, here[1] + 1 ]
-        case "E": return [ here[0] + 1, here[1] ]
-        case "SE": return [ here[0] - 1, here[1] + 1 ]
-        case "S": return [ here[0] - 1, here[1] ]
-        case "SW": return [ here[0] - 1, here[1] - 1 ]
-        case "W": return [ here[0], here[1] - 1 ]
-        case "NW": return [ here[0] + 1, here[1] - 1 ]
-        default: return [ ...here ]
+        case "N": return { x: here.x, y: here.y + 1 }
+        case "NE": return { x: here.x + 1, y: here.y + 1 }
+        case "E": return { x: here.x + 1, y: here.y }
+        case "SE": return { x: here.x - 1, y: here.y + 1 }
+        case "S": return { x: here.x - 1, y: here.y }
+        case "SW": return { x: here.x - 1, y: here.y - 1 }
+        case "W": return { x: here.x, y: here.y - 1 }
+        case "NW": return { x: here.x + 1, y: here.y - 1 }
+        default: return { ...here }
     }
 }
 
 export function getMoveDir(here: XYPosition, there: XYPosition): MoveDirection | undefined {
     // Before we get the move dir, validate that we're moving in a legal direction
     // (up, down, left, right, or exactly diagonal)
-    const deltaXAbs = Math.abs(there[0] - here[0])
-    const deltaYAbs = Math.abs(there[1] - here[1])
+    const deltaXAbs = Math.abs(there.x - here.x)
+    const deltaYAbs = Math.abs(there.y - here.y)
     if (deltaXAbs > 0 && deltaYAbs > 0 && deltaXAbs != deltaYAbs) {
         return undefined
     }
     // Now get the current move direction
-    const vectorHasWCmpnt = here[0] > there[0]
-    const vectorHasECmpnt = here[0] < there[0]
-    const vectorHasSCmpnt = here[1] > there[1]
-    const vectorHasNCmpnt = here[1] < there[1]
+    const vectorHasWCmpnt = here.x > there.x
+    const vectorHasECmpnt = here.x < there.x
+    const vectorHasSCmpnt = here.y > there.y
+    const vectorHasNCmpnt = here.y < there.y
     if (vectorHasNCmpnt) {
         if (!vectorHasECmpnt && !vectorHasWCmpnt) {
             return "N"
@@ -370,12 +370,12 @@ export function getMoveDir(here: XYPosition, there: XYPosition): MoveDirection |
 }
 
 export function getLineSegmentFollowingLineToEdge(a: XYPosition, b: XYPosition, edgeY: number): [XYPosition, XYPosition] {
-    const slope = (b[1] - a[1]) / (b[0] - a[0])
-    const y1 = b[1]
-    const x1 = b[0]
+    const slope = (b.y - a.y) / (b.x - a.x)
+    const y1 = b.y
+    const x1 = b.x
     const y2 = edgeY
     const x2 = ((y2 - y1) / slope) + x1
-    return [[x1, y1], [x2, y2]]
+    return [{ x: x1, y: y1 }, { x: x2, y: y2 }]
 }
 
 /**
@@ -397,8 +397,8 @@ export function moveCrossesLineSegment(
     const intersection = intersect([moveStart, moveEnd], [lineSegment[0], lineSegment[1]])
     if (!intersection) return crossesInTheseDirs
     // If it intersects, we now have some REAL math to do
-    const moveAngleDeg = Math.atan2(Math.abs(moveStart[1] - moveEnd[1]), Math.abs(moveStart[0] - moveEnd[0])) * 180 / Math.PI
-    const lineAngleDeg = Math.atan2(Math.abs(lineSegment[0][1] - lineSegment[1][1]), Math.abs(lineSegment[0][0] - lineSegment[1][0])) * 180 / Math.PI
+    const moveAngleDeg = Math.atan2(Math.abs(moveStart.y - moveEnd.y), Math.abs(moveStart.x - moveEnd.x)) * 180 / Math.PI
+    const lineAngleDeg = Math.atan2(Math.abs(lineSegment[0].y - lineSegment[1].y), Math.abs(lineSegment[0].x - lineSegment[1].x)) * 180 / Math.PI
     // - There are 2 semicircles you can draw with the line segment
     // - Let's label them based on which "half" of the compass they represent
     // - If it goes thru 90deg, it is the "north half"
@@ -434,32 +434,32 @@ export function whoHasRightOfWay(windOriginDir: WindDirection, movingBoat: Boat,
     }
     if (
         windOriginDir === "NW" && (
-            stationaryBoat.state.pos![0] > movingBoat.state.pos![0] || stationaryBoat.state.pos![1] < movingBoat.state.pos![1]
+            stationaryBoat.state.pos!.x > movingBoat.state.pos!.x || stationaryBoat.state.pos!.y < movingBoat.state.pos!.y
         )
         || windOriginDir === "NE" && (
-            stationaryBoat.state.pos![0] < movingBoat.state.pos![0] || stationaryBoat.state.pos![1] < movingBoat.state.pos![1]
+            stationaryBoat.state.pos!.x < movingBoat.state.pos!.x || stationaryBoat.state.pos!.y < movingBoat.state.pos!.y
         )
         || windOriginDir === "SE" && (
-            stationaryBoat.state.pos![0] < movingBoat.state.pos![0] || stationaryBoat.state.pos![1] > movingBoat.state.pos![1]
+            stationaryBoat.state.pos!.x < movingBoat.state.pos!.x || stationaryBoat.state.pos!.y > movingBoat.state.pos!.y
         )
         || windOriginDir === "SW" && (
-            stationaryBoat.state.pos![0] > movingBoat.state.pos![0] || stationaryBoat.state.pos![1] > movingBoat.state.pos![1]
+            stationaryBoat.state.pos!.x > movingBoat.state.pos!.x || stationaryBoat.state.pos!.y > movingBoat.state.pos!.y
         )
     ) {
         return [stationaryBoat, `${stationaryBoat.settings.name} has right of way (leeward)`]
     }
     if (
         windOriginDir === "NW" && (
-            movingBoat.state.pos![0] > stationaryBoat.state.pos![0] || movingBoat.state.pos![1] < stationaryBoat.state.pos![1]
+            movingBoat.state.pos!.x > stationaryBoat.state.pos!.x || movingBoat.state.pos!.y < stationaryBoat.state.pos!.y
         )
         || windOriginDir === "NE" && (
-            movingBoat.state.pos![0] < stationaryBoat.state.pos![0] || movingBoat.state.pos![1] < stationaryBoat.state.pos![1]
+            movingBoat.state.pos!.x < stationaryBoat.state.pos!.x || movingBoat.state.pos!.y < stationaryBoat.state.pos!.y
         )
         || windOriginDir === "SE" && (
-            movingBoat.state.pos![0] < stationaryBoat.state.pos![0] || movingBoat.state.pos![1] > stationaryBoat.state.pos![1]
+            movingBoat.state.pos!.x < stationaryBoat.state.pos!.x || movingBoat.state.pos!.y > stationaryBoat.state.pos!.y
         )
         || windOriginDir === "SW" && (
-            movingBoat.state.pos![0] > stationaryBoat.state.pos![0] || movingBoat.state.pos![1] > stationaryBoat.state.pos![1]
+            movingBoat.state.pos!.x > stationaryBoat.state.pos!.x || movingBoat.state.pos!.y > stationaryBoat.state.pos!.y
         )
     ) {
         return [movingBoat, `${movingBoat.settings.name} has right of way (leeward)`]
