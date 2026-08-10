@@ -340,7 +340,7 @@ export class AppGame implements ComponentDidLoad {
       <p>-- or --</p>
       <button
         onClick={() => this.dispatchCommand({ name: "EndTurnAndCycle" })}
-        disabled={!this.getMyBoat()?.state.hasMovedThisTurn && (this.getMyBoat()?.state?.speed ?? 0) > 0}
+        disabled={/*!this.getMyBoat()?.state.hasMovedThisTurn && (this.getMyBoat()?.state?.speed ?? 0) > 0*/false}
       >End Turn</button>
     </div>
   }
@@ -412,7 +412,6 @@ export class AppGame implements ComponentDidLoad {
       }
       <button
         onClick={() => this.dispatchCommand({ name: "StartGame" })}
-        disabled={this.game.boats.some((b) => !b.state.pos)}
       >Start Game</button>
     </div>
   }

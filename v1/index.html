@@ -1,0 +1,266 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Ready About!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Outfit:wght@100..900&family=Yellowtail&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Firebase for persistence -->
+    <script type="module" src="./firebase-app.js"></script>
+
+    <!-- GSAP for animations -->
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/gsap.min.js"></script>
+
+    <style>
+      html {
+        font-size: 14px;
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        color: #222;
+      }
+      [id^="compass-rose-control-"] {
+        width: 86px;
+        height: 86px;
+
+        button {
+          position: relative;
+          z-index: 1;
+          font-size: 20px;
+          font-weight: bold;
+          color: #fff;
+          text-shadow: 0 0 1px rgba(0, 0, 0, 0.2);
+          width: 86px;
+          height: 86px;
+          background-color: transparent;
+          background-size: contain;
+          background-repeat: no-repeat;
+          background-image: url(./assets/compass-rose-petal-n-gray.svg);
+          border: none !important;
+
+          &:focus {
+            outline: none;
+          }
+        }
+
+        span {
+          font-size: 26px;
+          font-weight: bold;
+        }
+
+        &[data-tack="starboard"] button {
+          background-image: url(./assets/compass-rose-petal-n-green.svg);
+        }
+        &[data-tack="port"] button {
+          background-image: url(./assets/compass-rose-petal-n-rust.svg);
+        }
+      }
+      #compass-rose-controls {
+        position: relative;
+        z-index: 1;
+      }
+      [disabled],
+      .disabled {
+        opacity: 0.5;
+      }
+      .tooltip {
+        position: absolute;
+        z-index: 0;
+        width: 170px;
+        background: #a1a1a1;
+        border-radius: 8px;
+        text-align: center;
+        color: #fff;
+        font-weight: bold;
+        text-shadow: 0 0 1px rgba(0, 0, 0, 0.2);
+        padding: 4px;
+        display: none;
+
+        p {
+          font-size: 12px;
+        }
+      }
+      #game-board {
+        background-image: url(./assets/logo-and-corners.png);
+      }
+      #game-board[data-wind-direction="NW"] {
+        background-image: url(./assets/logo-and-corners-nw-wind.png);
+      }
+      #game-board[data-wind-direction="NE"] {
+        background-image: url(./assets/logo-and-corners-ne-wind.png);
+      }
+      #game-board[data-wind-direction="SE"] {
+        background-image: url(./assets/logo-and-corners-se-wind.png);
+      }
+      #game-board[data-wind-direction="SW"] {
+        background-image: url(./assets/logo-and-corners-sw-wind.png);
+      }
+      .playing-card {
+        box-sizing: border-box;
+        width: 200px;
+        height: 300px;
+        padding: 10px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+        background-image: url(./assets/card-bg-generic.png);
+        border-radius: 8px;
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+        border-width: 4px;
+        border-style: solid;
+
+        h3 {
+          font-size: 36px;
+          line-height: 1;
+          text-align: center;
+          margin: 0;
+          padding: 0;
+        }
+
+        p {
+          font-size: 16px;
+          font-weight: bold;
+        }
+      }
+      .weather-card {
+        border-color: #2d5da4;
+        h3 {
+          color: #2d5da4;
+        }
+      }
+      .bonus-card {
+        border-color: #9f195e;
+        h3 {
+          color: #9f195e;
+        }
+      }
+      .cursive {
+        font-family: "Yellowtail", cursive;
+      }
+    </style>
+  </head>
+  <body style="margin: 0">
+    <div
+      id="game"
+      style="width: 100vw; height: 100vh; position: relative; display: flex; gap: 20px; justify-content: center"
+    >
+      <div id="game-console" style="margin-top: 105px">
+        <div
+          id="main-controls"
+          style="
+            width: 500px;
+            height: 500px;
+            background: url(./assets/compass-rose.png) no-repeat 100px 100px;
+            background-size: 300px 300px;
+          "
+        >
+          <div id="compass-rose-controls" style="position: relative; width: 100%; height: 100%">
+            <div
+              id="compass-rose-control-n"
+              style="position: absolute; top: 0; left: 50%; transform: translateX(-50%) translateY(30%)"
+            >
+              <div class="tooltip" style="transform: translate(-25%, -60%)"></div>
+              <button><span></span></button>
+            </div>
+            <div
+              id="compass-rose-control-ne"
+              style="position: absolute; top: 0; right: 0; transform: rotate(45deg) translateY(130%)"
+            >
+              <div class="tooltip" style="transform: rotate(-45deg) translate(25%, -120%)"></div>
+              <button><span style="transform: rotate(-45deg)"></span></button>
+            </div>
+            <div
+              id="compass-rose-control-e"
+              style="position: absolute; top: 50%; right: 0; transform: rotate(90deg) translateX(-50%) translateY(30%)"
+            >
+              <div class="tooltip" style="transform: rotate(-90deg) translate(30%, -175%)"></div>
+              <button><span style="transform: rotate(-90deg)"></span></button>
+            </div>
+            <div
+              id="compass-rose-control-se"
+              style="position: absolute; bottom: 0; right: 0; transform: rotate(135deg) translateY(130%)"
+            >
+              <div class="tooltip" style="transform: rotate(-135deg) translate(77%, -75%)"></div>
+              <button><span style="transform: rotate(-135deg)"></span></button>
+            </div>
+            <div
+              id="compass-rose-control-s"
+              style="
+                position: absolute;
+                bottom: 0;
+                left: 50%;
+                transform: rotate(180deg) translateX(50%) translateY(30%);
+              "
+            >
+              <div class="tooltip" style="transform: rotate(-180deg) translate(27%, 85%)"></div>
+              <button><span style="transform: rotate(-180deg)"></span></button>
+            </div>
+            <div
+              id="compass-rose-control-sw"
+              style="position: absolute; bottom: 0; left: 0; transform: rotate(225deg) translateY(130%)"
+            >
+              <div class="tooltip" style="transform: rotate(-225deg) translate(-37%, 34%)"></div>
+              <button><span style="transform: rotate(-225deg)"></span></button>
+            </div>
+            <div
+              id="compass-rose-control-w"
+              style="position: absolute; top: 50%; left: 0; transform: rotate(270deg) translateX(50%) translateY(30%)"
+            >
+              <div class="tooltip" style="transform: rotate(-270deg) translate(-29%, -13%)"></div>
+              <button><span style="transform: rotate(-270deg)"></span></button>
+            </div>
+            <div
+              id="compass-rose-control-nw"
+              style="position: absolute; top: 0; left: 0; transform: rotate(315deg) translateY(130%)"
+            >
+              <div class="tooltip" style="transform: rotate(-315deg) translate(-55%, 0%)"></div>
+              <button><span style="transform: rotate(-315deg)"></span></button>
+            </div>
+          </div>
+        </div>
+        <div
+          id="cards"
+          style="
+            width: 100%;
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            padding-top: 30px;
+            padding-bottom: 100px;
+          "
+        >
+          <div id="bonus-cards">
+            <h3>Your <em>sailor's delight</em> cards</h3>
+            <div
+              id="bonus-cards-container"
+              style="display: flex; gap: 10px; width: 250px; justify-content: center"
+            ></div>
+          </div>
+          <div id="active-weather-card">
+            <h3>Active <em>weather</em> card</h3>
+            <div
+              id="active-weather-card-container"
+              style="display: flex; gap: 10px; width: 250px; justify-content: center"
+            ></div>
+          </div>
+        </div>
+      </div>
+      <div
+        id="game-board"
+        data-wind-direction="NW"
+        style="position: relative; box-sizing: content-box; background-size: cover; margin-top: 10px"
+      ></div>
+    </div>
+
+    <script type="module" src="./ready-about.js"></script>
+  </body>
+</html>

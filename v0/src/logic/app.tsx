@@ -204,16 +204,16 @@ export function constructLoadGame(
             // -1 if, at any point during your move, there will be a boat 1 or 2 spaces away from you in the exact direction of the wind
             let nextTargetPos = myBoat.state.pos
             let boatsBlockingMyWindNow: Boat[] = []
-            let boatsBlockingMyWindDuringMove: Boat[] = []
+            // let boatsBlockingMyWindDuringMove: Boat[] = []
             for (let movesAway = 0; movesAway <= speed; movesAway++) {
                 const boatsBlockingMyWindThisMove = getBoatsBlockingMyWind(nextTargetPos, game).filter(b => b.boatId !== myBoatId)
-                if (boatsBlockingMyWindThisMove.length > 0) {
-                    speed = Math.max(0, speed - 1)
-                }
                 if (movesAway === 0) {
                     boatsBlockingMyWindNow = boatsBlockingMyWindThisMove
                 } else {
-                    boatsBlockingMyWindDuringMove = [ ...boatsBlockingMyWindDuringMove, ...boatsBlockingMyWindThisMove ]
+                    // boatsBlockingMyWindDuringMove = [ ...boatsBlockingMyWindDuringMove, ...boatsBlockingMyWindThisMove ]
+                }
+                if (boatsBlockingMyWindNow.length > 0) {
+                    speed = Math.max(0, speed - 1)
                 }
                 nextTargetPos = getPos1SpaceThisDir(nextTargetPos, dir)
             }
@@ -221,9 +221,9 @@ export function constructLoadGame(
                 return [
                     speed,
                     tack,
-                    boatsBlockingMyWindDuringMove.length > 1
+                    boatsBlockingMyWindNow.length > 1
                         ? "Your wind is blocked by other boats in this direction"
-                    : boatsBlockingMyWindDuringMove.length > 0
+                    : boatsBlockingMyWindNow.length > 0
                         ? boatsBlockingMyWindNow.map(({ settings }) => settings.name).join(" and ") +
                             (boatsBlockingMyWindNow.length > 1 ? " are " : " is ") + "blocking your wind"
                     : ""
@@ -316,9 +316,6 @@ export function constructLoadGame(
                 })
                 _localStorage.setItem(`ready-about.${gameId}.boat-id`, myBoatId)
                 patchGameControls({ iNeedToChooseMyBoat: false })
-                if (iAmOwner()) {
-                    events.push({ name: "INeedToChooseTheCourse" })
-                }
             }
             if (name === "ChooseCourse") {
                 await updateGame({
@@ -332,10 +329,13 @@ export function constructLoadGame(
             if (name === "StartGame") {
                 await updateGame({
                     started: true,
-                    idOfBoatWhoseTurnItIs: getFirstTurnBoatId(),
+                    // idOfBoatWhoseTurnItIs: getFirstTurnBoatId(),
                 })
-                if (game.boats.length === 1) {
-                    commands.push({ name: "BeginTurnByRevealingWeatherCard" })
+                // if (game.boats.length === 1) {
+                //     commands.push({ name: "BeginTurnByRevealingWeatherCard" })
+                // }
+                if (iAmOwner()) {
+                    events.push({ name: "INeedToChooseTheCourse" })
                 }
             }
             if (name === "ChooseBoatStartingPos") {
@@ -511,6 +511,9 @@ export function constructLoadGame(
                 await updateGame({
                     idOfBoatWhoseTurnItIs: getNextTurnBoatId(),
                 })
+                if (game.boats.length === 1) {
+                    commands.push({ name: "BeginTurnByRevealingWeatherCard" })
+                }
             }
             if (name === "EndTurnAndCycle") {
                 await updateGame({
@@ -653,11 +656,6 @@ export function constructLoadGame(
                 : -1
             const nextTurnIndex = thisTurnIndex + 1 >= game.boats.length ? 0 : thisTurnIndex + 1
             const nextBoat = game.boats.find((boat) => boat.boatId === game.turnOrder[nextTurnIndex])!
-            return nextBoat.boatId
-        }
-
-        function getFirstTurnBoatId(): string {
-            const nextBoat = game.boats.find((boat) => boat.boatId === game.turnOrder[0])!
             return nextBoat.boatId
         }
 

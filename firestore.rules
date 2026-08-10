@@ -7,5 +7,8 @@ service cloud.firestore {
     match /game-logs/{document=**} {
       allow read, write;
     }
+    match /ready-about-sessions/{document=**} {
+      allow read, write;
+    }
   }
 }
