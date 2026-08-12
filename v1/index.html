@@ -27,6 +27,17 @@
         background: url(./assets/bg-lake-1.png) no-repeat center center fixed;
         background-size: cover;
       }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border-width: 0;
+      }
       [disabled],
       .disabled {
         opacity: 0.5;
@@ -34,6 +45,20 @@
       }
       button {
         cursor: pointer;
+      }
+      @media (min-width: 1361px) {
+        #game-console {
+          margin-left: calc((100vw - 1340px) / 2);
+          margin-top: 105px;
+        }
+      }
+      @media (max-width: 1360px) {
+        #game-console {
+          width: 100vw;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
       }
       .tooltip {
         display: none;
@@ -184,12 +209,10 @@
       Claim player 3
     </button>
     <button onclick="window.readyAboutSession.stateTransitions.CYCLE_TURN()">Start</button>
+    <button onclick="window.location.href = '/'">New Game</button>
 
-    <div
-      id="game"
-      style="width: 100vw; height: 100vh; position: relative; display: flex; gap: 20px; justify-content: center"
-    >
-      <div id="game-console" style="margin-top: 105px">
+    <div id="game" style="position: relative; float: left">
+      <div id="game-console" style="float: left">
         <div
           id="main-controls"
           style="
@@ -269,7 +292,7 @@
               background: #2c3747;
             "
           >
-            <img src="./assets/choose-your-move-dir.png" style="width: 100%" />
+            <img src="./assets/choose-your-move-dir.png" alt="Choose your move direction, or..." style="width: 100%" />
           </div>
         </div>
         <div
@@ -302,10 +325,10 @@
       <div
         id="game-board"
         data-wind-direction="NW"
-        style="position: relative; box-sizing: content-box; background-size: cover; margin-top: 10px"
+        style="float: left; position: relative; box-sizing: content-box; background-size: cover; margin-top: 10px"
       ></div>
     </div>
 
-    <script type="module" src="./ready-about.js"></script>
+    <script type="module" src="./ready-about.js?v=20260812"></script>
   </body>
 </html>

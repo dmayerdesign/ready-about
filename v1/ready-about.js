@@ -1,6 +1,6 @@
-import { animations } from "./animation.js";
-import { GridGameBoard } from "./grid-game-board.js";
-import { initFirebase } from "./firebase-app.js";
+import { animations } from "./animation.js?v=20260812";
+import { GridGameBoard } from "./grid-game-board.js?v=20260812";
+import { initFirebase } from "./firebase-app.js?v=20260812";
 import {
   getFirestore,
   doc,
@@ -123,6 +123,20 @@ export class ReadyAboutSession {
         type: "buoy",
         variation: "white",
       },
+    },
+    onDotClick: async ({ x, y }) => {
+      // Claim the first unclaimed player piece and place it at the clicked position
+      const unclaimedPlayerPieceId = Object.entries(this.board.availablePieces).find(([pieceId, pieceConfig]) => {
+        return pieceConfig.type === "player" && !this.gameState.players[pieceId]?.claimed;
+      })?.[0];
+      if (unclaimedPlayerPieceId) {
+        this.gameState.players[unclaimedPlayerPieceId] = { ...new ReadyAboutPlayerState(), claimed: true };
+        this.turnOrder.push(unclaimedPlayerPieceId);
+        await this.stateTransitions.PLACE_PIECE(unclaimedPlayerPieceId, { x, y });
+        await this.stateTransitions.CLAIM_PLAYER_PIECE(unclaimedPlayerPieceId);
+        await this.commit();
+        this.render();
+      }
     },
   });
   interactionsDisabled = false;
@@ -248,7 +262,7 @@ export class ReadyAboutSession {
     },
   };
   // State
-  myPlayerId = null;
+  myPlayerIds = [];
   gameState = {
     windDirection: "NW",
     players: {
@@ -273,14 +287,14 @@ export class ReadyAboutSession {
   get activePlayerId() {
     return this.activePlayerEntry?.[0];
   }
-  get myPlayerEntry() {
-    return Object.entries(this.gameState.players).find(([playerId, _]) => playerId === this.myPlayerId);
+  get myPlayerEntries() {
+    return Object.entries(this.gameState.players).filter(([playerId, _]) => this.myPlayerIds.includes(playerId));
   }
-  get myPlayerState() {
-    return this.myPlayerEntry?.[1];
+  get myPlayerStates() {
+    return this.myPlayerEntries.map(([_, playerState]) => playerState);
   }
   get myTurn() {
-    return this.myPlayerState?.myTurn;
+    return this.myPlayerStates.some(playerState => playerState.myTurn);
   }
   get startingLineSegment() {
     const startingBuoyPortPos = this.board.piecePositions.starting_buoy_port;
@@ -394,13 +408,19 @@ export class ReadyAboutSession {
       this.enableInteractions();
     },
     CLAIM_PLAYER_PIECE: async playerId => {
-      window.localStorage.setItem("readyAbout_" + this.id + "_myPlayerId", playerId);
-      this.myPlayerId = playerId;
+      const existingMyPlayerIds = (window.localStorage.getItem("readyAbout_" + this.id + "_myPlayerIds") || "").split(
+        ",",
+      );
+      window.localStorage.setItem(
+        "readyAbout_" + this.id + "_myPlayerIds",
+        [...existingMyPlayerIds, playerId].join(","),
+      );
+      this.myPlayerIds = [...existingMyPlayerIds, playerId];
       this.gameState.players[playerId].claimed = true;
       await this.commit();
     },
     CYCLE_TURN: async () => {
-      if (this.activePlayerId && this.activePlayerId !== this.myPlayerId) {
+      if (this.activePlayerId && !this.myPlayerIds.includes(this.activePlayerId)) {
         return;
       }
       this.disableInteractions();
@@ -439,7 +459,7 @@ export class ReadyAboutSession {
       this.enableInteractions();
     },
     DRAW_AND_RESOLVE_WEATHER: async () => {
-      if (this.activePlayerId !== this.myPlayerId) {
+      if (!this.myPlayerIds.includes(this.activePlayerId)) {
         return;
       }
       // Draw a weather card
@@ -519,7 +539,7 @@ export class ReadyAboutSession {
       await this.commit();
     },
     DRAW_BONUS_CARD: async () => {
-      if (this.activePlayerId !== this.myPlayerId) {
+      if (!this.myPlayerIds.includes(this.activePlayerId)) {
         return;
       }
       // Draw a bonus card
@@ -534,7 +554,7 @@ export class ReadyAboutSession {
       await this.commit();
     },
     PLAY_BONUS: async bonusCardId => {
-      if (this.activePlayerId !== this.myPlayerId) {
+      if (!this.myPlayerIds.includes(this.activePlayerId)) {
         return;
       }
       // 0. Validate that the active player actually has this bonus card in hand,
@@ -613,6 +633,7 @@ export class ReadyAboutSession {
      */
     RECALC_ACTIVE_PLAYER_MOVE_OPTIONS: async () => {
       if (!this.activePlayerState) return;
+      if (!this.board.piecePositions[this.activePlayerId]) return;
       // Test-move in every direction
       for (const dir of CARDINAL_DIRECTIONS) {
         // Reset the movement factors
@@ -834,7 +855,7 @@ export class ReadyAboutSession {
         const idFromURL = new URLSearchParams(window.location.search).get("id");
         if (idFromURL) {
           this.id = idFromURL;
-          this.myPlayerId = window.localStorage.getItem("readyAbout_" + this.id + "_myPlayerId");
+          this.myPlayerIds = (window.localStorage.getItem("readyAbout_" + this.id + "_myPlayerIds") || "").split(",");
         }
         if (idFromURL) {
           await this.hydrateFromURL();
@@ -844,17 +865,18 @@ export class ReadyAboutSession {
           this.refillBonusCardDeck();
 
           await this.commit();
+
           // For testing, place our pieces here -- later, let the user do it
-          this.gameState.players["player_1"] = { ...new ReadyAboutPlayerState() };
-          this.gameState.players["player_2"] = { ...new ReadyAboutPlayerState() };
-          this.gameState.players["player_3"] = { ...new ReadyAboutPlayerState() };
-          this.turnOrder.push("player_1");
-          this.turnOrder.push("player_2");
-          this.turnOrder.push("player_3");
+          // this.gameState.players["player_1"] = { ...new ReadyAboutPlayerState() };
+          // this.gameState.players["player_2"] = { ...new ReadyAboutPlayerState() };
+          // this.gameState.players["player_3"] = { ...new ReadyAboutPlayerState() };
+          // this.turnOrder.push("player_1");
+          // this.turnOrder.push("player_2");
+          // this.turnOrder.push("player_3");
           await this.stateTransitions.PLACE_PIECES([
-            ["player_1", { x: 11, y: 3 }],
-            ["player_2", { x: 10, y: 4 }],
-            ["player_3", { x: 9, y: 5 }],
+            // ["player_1", { x: 11, y: 3 }],
+            // ["player_2", { x: 10, y: 4 }],
+            // ["player_3", { x: 9, y: 5 }],
             ["starting_buoy_port", { x: 12, y: 6 }],
             ["starting_buoy_starboard", { x: 18, y: 6 }],
             ["marker_buoy_1", { x: 15, y: 25 }],
@@ -902,7 +924,7 @@ export class ReadyAboutSession {
     const newDataToAssign = {
       id: data.id,
       gameState: data.gameState,
-      // interactionsDisabled: data.interactionsDisabled,
+      interactionsDisabled: data.interactionsDisabled,
       turnOrder: data.turnOrder,
       weatherCardsConfig: data.weatherCardsConfig,
       bonusCardsConfig: data.bonusCardsConfig,
@@ -911,15 +933,10 @@ export class ReadyAboutSession {
         piecePositions: data.board.piecePositions,
         pieceTypes: data.board.pieceTypes,
         availablePieces: data.board.availablePieces,
+        dotsClickable: this.board.dotsClickable,
+        onDotClick: this.board.onDotClick,
       }),
     };
-    // Object.keys(newDataToAssign).forEach(key => {
-    //   if (newDataToAssign[key] !== this[key]) {
-    //     console.log(
-    //       `${key} is ${JSON.stringify(newDataToAssign[key])} in Firestore, but ${JSON.stringify(this[key])} in memory. Updating...`,
-    //     );
-    //   }
-    // });
     Object.assign(this, newDataToAssign);
     console.log(`Hydrated ReadyAboutSession ${this.id} from Firestore.`);
   }
@@ -1088,12 +1105,16 @@ export class ReadyAboutSession {
     if (!document.getElementById("game-board")) {
       throw new Error("No element with id 'game-board' found in the DOM.");
     }
+
     // Render the game board
-    if (!document.getElementById("grid-game-board")) {
-      document.getElementById("game-board").appendChild(this.board.render());
+    this.board.render();
+    // Prompt select piece (user does this by selecting a starting position)
+    if (Object.values(this.gameState.players).some(playerState => !playerState.claimed)) {
+      this.board.toggleDotsClickable(true);
     } else {
-      document.getElementById("grid-game-board").replaceWith(this.board.render());
+      this.board.toggleDotsClickable(false);
     }
+
     // Render the control panel
     CARDINAL_DIRECTIONS.forEach(dir => {
       const button = document.querySelector(`#compass-rose-control-${dir.toLowerCase()} button`);
@@ -1149,6 +1170,7 @@ export class ReadyAboutSession {
         }
       }
     });
+
     // Render the background
     switch (this.gameState.windDirection) {
       case "NW":
@@ -1164,6 +1186,7 @@ export class ReadyAboutSession {
         document.getElementById("game-board").setAttribute("data-wind-direction", "SW");
         break;
     }
+
     // Render bonus cards
     document.getElementById("bonus-cards-container").innerHTML = "";
     this.activePlayerState?.bonusCardsInHand.forEach(card => {
@@ -1181,6 +1204,7 @@ export class ReadyAboutSession {
       }
       document.getElementById("bonus-cards-container").appendChild(cardElement);
     });
+
     // Render weather card
     document.getElementById("active-weather-card-container").innerHTML = "";
     const lastWeatherCard = this.gameState?.weatherCardDiscard?.[this.gameState?.weatherCardDiscard?.length - 1];
@@ -1271,6 +1295,10 @@ export class ReadyAboutSession {
     const { dx, dy } = this.getXYDeltaFromDir(direction);
     const pathAsListOfCoordinates = [];
     const startPos = this.board.piecePositions[playerId];
+    if (!startPos) {
+      console.warn(`Player ${playerId} is not placed on the board. Cannot test move.`);
+      return [[], { x: 0, y: 0 }, 0];
+    }
     for (let i = 1; i <= steps; i++) {
       pathAsListOfCoordinates.push({
         x: startPos.x + dx * i,

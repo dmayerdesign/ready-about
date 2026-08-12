@@ -1,10 +1,13 @@
-import { animations } from "./animation.js";
+import { animations } from "./animation.js?v=20260812";
 
 export class GridGameBoard {
   #dimensions;
   #pieceTypes;
   #availablePieces;
   #piecePositions;
+  #dotsClickable;
+  #onDotClick;
+  #eventListeners = [];
 
   get dimensions() {
     return this.#dimensions;
@@ -22,13 +25,19 @@ export class GridGameBoard {
     return Object.entries(this.#piecePositions);
   }
   get playerPositionEntries() {
-    return this.positionEntries.filter(([pieceId]) => this.#availablePieces[pieceId]?.type === "player");
+    return this.piecePositionEntries.filter(([pieceId]) => this.#availablePieces[pieceId]?.type === "player");
   }
   get nonPlayerPositionEntries() {
-    return this.positionEntries.filter(([pieceId]) => this.#availablePieces[pieceId]?.type !== "player");
+    return this.piecePositionEntries.filter(([pieceId]) => this.#availablePieces[pieceId]?.type !== "player");
+  }
+  get dotsClickable() {
+    return this.#dotsClickable;
+  }
+  get onDotClick() {
+    return this.#onDotClick;
   }
 
-  constructor({ dimensions, piecePositions, pieceTypes, availablePieces }) {
+  constructor({ dimensions, piecePositions, pieceTypes, availablePieces, dotsClickable = false, onDotClick = null }) {
     this.#dimensions = dimensions;
     this.#pieceTypes = pieceTypes;
     this.#availablePieces = availablePieces;
@@ -37,6 +46,8 @@ export class GridGameBoard {
     } else {
       this.#piecePositions = Object.fromEntries(Object.keys(availablePieces).map(pieceId => [pieceId, null]));
     }
+    this.#dotsClickable = dotsClickable;
+    this.#onDotClick = onDotClick;
   }
 
   getConfigForPiece(pieceId) {
@@ -140,9 +151,24 @@ export class GridGameBoard {
     });
   }
 
+  toggleDotsClickable(clickable = true) {
+    this.#dotsClickable = clickable;
+    this.render();
+  }
+
   render() {
+    if (this.#eventListeners.length > 0) {
+      for (const { element, type, listener } of this.#eventListeners) {
+        element.removeEventListener(type, listener);
+      }
+      this.#eventListeners = [];
+    }
     // Mutate the parent #game-board element to have the correct dimensions for the board
     const boardElement = document.getElementById("game-board");
+    if (!boardElement) {
+      throw new Error("No element with id 'game-board' found in the DOM.");
+    }
+    const existingBoardGridElement = document.getElementById("grid-game-board");
     boardElement.style.width = `${this.#dimensions.widthPx}px`;
     boardElement.style.height = `${this.#dimensions.heightPx}px`;
     boardElement.style.padding = `${this.#dimensions.step * 5}px`;
@@ -162,15 +188,34 @@ export class GridGameBoard {
     for (let x = 0; x <= this.#dimensions.widthPx; x += this.#dimensions.step) {
       for (let y = 0; y <= this.#dimensions.heightPx; y += this.#dimensions.step) {
         const dot = document.createElement("div");
-        dot.style.borderRadius = `${this.#dimensions.step / 8}px`;
+        dot.style.borderRadius = `${this.#dimensions.step}px`;
         dot.style.width = `${this.#dimensions.step / 4}px`;
         dot.style.height = `${this.#dimensions.step / 4}px`;
         dot.style.backgroundColor = "#dfeefa";
+        dot.style.border = `${this.#dimensions.step / 4}px solid rgba(0, 0, 0, 0)`;
         dot.style.position = "absolute";
         dot.style.left = `${x}px`;
         dot.style.top = `${y}px`;
         dot.style.transform = "translate(-50%, -50%)";
+        dot.style.pointerEvents = "auto";
         dotsContainerElement.appendChild(dot);
+
+        dot.style.cursor = this.#dotsClickable ? "pointer" : "default";
+        dot.style.padding = `${this.#dimensions.step / 4}px`;
+        dot.style.margin = "0";
+        dot.style.boxSizing = "content-box";
+        dot.style.backgroundClip = "content-box";
+        const clickListener = event => {
+          if (this.#dotsClickable && this.#onDotClick) {
+            event.stopPropagation();
+            this.#onDotClick({
+              x: x / this.#dimensions.step,
+              y: this.#dimensions.heightPx / this.#dimensions.step - y / this.#dimensions.step - 1,
+            });
+          }
+        };
+        dot.addEventListener("click", clickListener);
+        this.#eventListeners.push({ element: dot, type: "click", listener: clickListener });
       }
     }
     // Render pieces
@@ -191,7 +236,12 @@ export class GridGameBoard {
       pieceElement.style.transform = "translate(-50%, -50%)";
       boardGridElement.appendChild(pieceElement);
     }
-    // Return the #grid-game-board element to be appended to #game-board
+    if (existingBoardGridElement) {
+      existingBoardGridElement.replaceWith(boardGridElement);
+    } else {
+      boardElement.appendChild(boardGridElement);
+    }
+    // Return the live #grid-game-board element for callers that need it
     return boardGridElement;
   }
 
