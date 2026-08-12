@@ -24,10 +24,40 @@
       body {
         font-family: "Inter", sans-serif;
         color: #222;
+        background: url(./assets/bg-lake-1.png) no-repeat center center fixed;
+        background-size: cover;
+      }
+      [disabled],
+      .disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button {
+        cursor: pointer;
+      }
+      .tooltip {
+        display: none;
+        position: absolute;
+        z-index: 0;
+        width: 170px;
+        background: #a1a1a1;
+        border-radius: 8px;
+        text-align: center;
+        color: #fff;
+        font-weight: bold;
+        text-shadow: 0 0 1px rgba(0, 0, 0, 0.2);
+        padding: 4px;
+        transform-origin: 0 0;
+        opacity: 0.9;
+
+        p {
+          font-size: 12px;
+        }
       }
       [id^="compass-rose-control-"] {
         width: 86px;
         height: 86px;
+        /* transform-origin: 0 0; */
 
         button {
           position: relative;
@@ -65,27 +95,6 @@
         position: relative;
         z-index: 1;
       }
-      [disabled],
-      .disabled {
-        opacity: 0.5;
-      }
-      .tooltip {
-        position: absolute;
-        z-index: 0;
-        width: 170px;
-        background: #a1a1a1;
-        border-radius: 8px;
-        text-align: center;
-        color: #fff;
-        font-weight: bold;
-        text-shadow: 0 0 1px rgba(0, 0, 0, 0.2);
-        padding: 4px;
-        display: none;
-
-        p {
-          font-size: 12px;
-        }
-      }
       #game-board {
         background-image: url(./assets/logo-and-corners.png);
       }
@@ -117,6 +126,7 @@
         box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
         border-width: 4px;
         border-style: solid;
+        background-color: #fafafa;
 
         h3 {
           font-size: 36px;
@@ -149,6 +159,32 @@
     </style>
   </head>
   <body style="margin: 0">
+    <button
+      onclick="
+        window.readyAboutSession.stateTransitions.CLAIM_PLAYER_PIECE('player_1');
+        window.location.reload();
+      "
+    >
+      Claim player 1
+    </button>
+    <button
+      onclick="
+        window.readyAboutSession.stateTransitions.CLAIM_PLAYER_PIECE('player_2');
+        window.location.reload();
+      "
+    >
+      Claim player 2
+    </button>
+    <button
+      onclick="
+        window.readyAboutSession.stateTransitions.CLAIM_PLAYER_PIECE('player_3');
+        window.location.reload();
+      "
+    >
+      Claim player 3
+    </button>
+    <button onclick="window.readyAboutSession.stateTransitions.CYCLE_TURN()">Start</button>
+
     <div
       id="game"
       style="width: 100vw; height: 100vh; position: relative; display: flex; gap: 20px; justify-content: center"
@@ -157,6 +193,7 @@
         <div
           id="main-controls"
           style="
+            position: relative;
             width: 500px;
             height: 500px;
             background: url(./assets/compass-rose.png) no-repeat 100px 100px;
@@ -166,65 +203,73 @@
           <div id="compass-rose-controls" style="position: relative; width: 100%; height: 100%">
             <div
               id="compass-rose-control-n"
-              style="position: absolute; top: 0; left: 50%; transform: translateX(-50%) translateY(30%)"
+              style="position: absolute; top: 0; left: 50%; transform: translate(-50%, 30%)"
             >
-              <div class="tooltip" style="transform: translate(-25%, -60%)"></div>
+              <div class="tooltip" style="transform: translate(30px, -50px)"></div>
               <button><span></span></button>
             </div>
             <div
               id="compass-rose-control-ne"
-              style="position: absolute; top: 0; right: 0; transform: rotate(45deg) translateY(130%)"
+              style="position: absolute; top: 0; right: 0; transform: rotate(45deg) translate(0, 130%)"
             >
-              <div class="tooltip" style="transform: rotate(-45deg) translate(25%, -120%)"></div>
+              <div class="tooltip" style="transform: rotate(-45deg) translate(20px, 20px)"></div>
               <button><span style="transform: rotate(-45deg)"></span></button>
             </div>
             <div
               id="compass-rose-control-e"
-              style="position: absolute; top: 50%; right: 0; transform: rotate(90deg) translateX(-50%) translateY(30%)"
+              style="position: absolute; top: 50%; right: 0; transform: rotate(90deg) translate(-50%, 30%)"
             >
-              <div class="tooltip" style="transform: rotate(-90deg) translate(30%, -175%)"></div>
+              <div class="tooltip" style="transform: rotate(-90deg) translate(-15px, -10px)"></div>
               <button><span style="transform: rotate(-90deg)"></span></button>
             </div>
             <div
               id="compass-rose-control-se"
-              style="position: absolute; bottom: 0; right: 0; transform: rotate(135deg) translateY(130%)"
+              style="position: absolute; bottom: 0; right: 0; transform: rotate(135deg) translate(0, 130%)"
             >
-              <div class="tooltip" style="transform: rotate(-135deg) translate(77%, -75%)"></div>
+              <div class="tooltip" style="transform: rotate(-135deg) translate(-40px, -50px)"></div>
               <button><span style="transform: rotate(-135deg)"></span></button>
             </div>
             <div
               id="compass-rose-control-s"
-              style="
-                position: absolute;
-                bottom: 0;
-                left: 50%;
-                transform: rotate(180deg) translateX(50%) translateY(30%);
-              "
+              style="position: absolute; bottom: 0; left: 50%; transform: rotate(180deg) translate(50%, 30%)"
             >
-              <div class="tooltip" style="transform: rotate(-180deg) translate(27%, 85%)"></div>
+              <div class="tooltip" style="transform: rotate(-180deg) translate(-30px, -40px)"></div>
               <button><span style="transform: rotate(-180deg)"></span></button>
             </div>
             <div
               id="compass-rose-control-sw"
-              style="position: absolute; bottom: 0; left: 0; transform: rotate(225deg) translateY(130%)"
+              style="position: absolute; bottom: 0; left: 0; transform: rotate(225deg) translate(0, 130%)"
             >
-              <div class="tooltip" style="transform: rotate(-225deg) translate(-37%, 34%)"></div>
+              <div class="tooltip" style="transform: rotate(-225deg) translate(-110px, -45px)"></div>
               <button><span style="transform: rotate(-225deg)"></span></button>
             </div>
             <div
               id="compass-rose-control-w"
-              style="position: absolute; top: 50%; left: 0; transform: rotate(270deg) translateX(50%) translateY(30%)"
+              style="position: absolute; top: 50%; left: 0; transform: rotate(270deg) translate(50%, 30%)"
             >
-              <div class="tooltip" style="transform: rotate(-270deg) translate(-29%, -13%)"></div>
+              <div class="tooltip" style="transform: rotate(-270deg) translate(0, 0)"></div>
               <button><span style="transform: rotate(-270deg)"></span></button>
             </div>
             <div
               id="compass-rose-control-nw"
-              style="position: absolute; top: 0; left: 0; transform: rotate(315deg) translateY(130%)"
+              style="position: absolute; top: 0; left: 0; transform: rotate(315deg) translate(0, 130%)"
             >
-              <div class="tooltip" style="transform: rotate(-315deg) translate(-55%, 0%)"></div>
+              <div class="tooltip" style="transform: rotate(-315deg) translate(0, 0)"></div>
               <button><span style="transform: rotate(-315deg)"></span></button>
             </div>
+          </div>
+          <div
+            id="compass-rose-inner"
+            style="
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              width: 250px;
+              background: #2c3747;
+            "
+          >
+            <img src="./assets/choose-your-move-dir.png" style="width: 100%" />
           </div>
         </div>
         <div

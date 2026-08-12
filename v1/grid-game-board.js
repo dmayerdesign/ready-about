@@ -1,3 +1,5 @@
+import { animations } from "./animation.js";
+
 export class GridGameBoard {
   #dimensions;
   #pieceTypes;
@@ -121,14 +123,17 @@ export class GridGameBoard {
       }
       // Small delay just to make the UX smoother
       setTimeout(() => {
-        gsap.to(pieceElement, {
-          left: toPos.x * this.#dimensions.step,
-          bottom: toPos.y * this.#dimensions.step,
-          duration: 0.4 * stepsMoved,
-          // ease: "none",
-          ease: "power1.inOut",
-          onComplete: () => {
-            setTimeout(resolve, 100);
+        animations.push({
+          target: pieceElement,
+          options: {
+            left: toPos.x * this.#dimensions.step,
+            bottom: toPos.y * this.#dimensions.step,
+            duration: 0.4 * stepsMoved,
+            // ease: "none",
+            ease: "power1.inOut",
+            onComplete: () => {
+              setTimeout(resolve, 100);
+            },
           },
         });
       }, 500);

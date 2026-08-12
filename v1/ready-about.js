@@ -1,3 +1,4 @@
+import { animations } from "./animation.js";
 import { GridGameBoard } from "./grid-game-board.js";
 import { initFirebase } from "./firebase-app.js";
 import {
@@ -10,6 +11,7 @@ import {
 
 class ReadyAboutPlayerState {
   myTurn = false;
+  claimed = false;
   turnsCompleted = 0;
   currentOrientation = "N";
   currentTack = "port";
@@ -42,6 +44,7 @@ class ReadyAboutPlayerState {
 export class ReadyAboutSession {
   id = randomGameSessionId(4);
   firebaseApp = initFirebase();
+  lastCommittedState = null;
   // Configuration
   board = new GridGameBoard({
     dimensions: {
@@ -123,8 +126,10 @@ export class ReadyAboutSession {
     },
   });
   interactionsDisabled = false;
-  hydrationInProgress = false;
-  turnOrder = ["player_1"];
+  get interactionsAreDisabled() {
+    return this.interactionsDisabled || !this.myTurn;
+  }
+  turnOrder = [];
   weatherCardsConfig = {
     smooth_sailing: {
       title: "Smooth sailing.",
@@ -186,6 +191,17 @@ export class ReadyAboutSession {
       subtitle: "Your turn is over.",
       quantity: 1,
     },
+    // Good config for testing:
+    // smooth_sailing: {
+    //   title: "Smooth sailing.",
+    //   subtitle: "Nothing happens.",
+    //   quantity: 10,
+    // },
+    // plus_one_speed: {
+    //   title: "You catch a puff!",
+    //   subtitle: "Add 1 to your speed this turn.",
+    //   quantity: 20,
+    // },
   };
   bonusCardsConfig = {
     force_wind_change: {
@@ -232,6 +248,7 @@ export class ReadyAboutSession {
     },
   };
   // State
+  myPlayerId = null;
   gameState = {
     windDirection: "NW",
     players: {
@@ -256,11 +273,21 @@ export class ReadyAboutSession {
   get activePlayerId() {
     return this.activePlayerEntry?.[0];
   }
+  get myPlayerEntry() {
+    return Object.entries(this.gameState.players).find(([playerId, _]) => playerId === this.myPlayerId);
+  }
+  get myPlayerState() {
+    return this.myPlayerEntry?.[1];
+  }
+  get myTurn() {
+    return this.myPlayerState?.myTurn;
+  }
   get startingLineSegment() {
     const startingBuoyPortPos = this.board.piecePositions.starting_buoy_port;
     const startingBuoyStarboardPos = this.board.piecePositions.starting_buoy_starboard;
     if (!startingBuoyPortPos || !startingBuoyStarboardPos) {
-      throw new Error("Starting line buoys are not placed on the board.");
+      console.warn("Starting line buoys are not placed on the board.");
+      return [];
     }
     return [startingBuoyPortPos, startingBuoyStarboardPos];
   }
@@ -312,6 +339,7 @@ export class ReadyAboutSession {
     const pointOfSailNum = CARDINAL_DIRECTIONS.indexOf(orientation) - CARDINAL_DIRECTIONS.indexOf(windDir);
     switch (pointOfSailNum) {
       case 0:
+      case 8:
         return ["irons", "upwind", 0];
       case 1:
       case -7:
@@ -344,29 +372,57 @@ export class ReadyAboutSession {
       await this.commit();
       await this.board.placePiece(pieceId, { x, y });
       try {
-        this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
+        await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
       } catch (e) {
         console.log("Error recalculating move options after placing piece:", e);
       }
+      await this.commit();
       this.enableInteractions();
+    },
+    PLACE_PIECES: async pieces => {
+      this.disableInteractions();
+      await this.commit();
+      for (const [pieceId, { x, y }] of pieces) {
+        await this.board.placePiece(pieceId, { x, y });
+      }
+      try {
+        await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
+      } catch (e) {
+        console.log("Error recalculating move options after placing piece:", e);
+      }
+      await this.commit();
+      this.enableInteractions();
+    },
+    CLAIM_PLAYER_PIECE: async playerId => {
+      window.localStorage.setItem("readyAbout_" + this.id + "_myPlayerId", playerId);
+      this.myPlayerId = playerId;
+      this.gameState.players[playerId].claimed = true;
       await this.commit();
     },
     CYCLE_TURN: async () => {
+      if (this.activePlayerId && this.activePlayerId !== this.myPlayerId) {
+        return;
+      }
       this.disableInteractions();
       // Reset the previous active player
       const whoseTurnWasIt = this.activePlayerId;
-      this.gameState.players[whoseTurnWasIt] = {
-        ...new ReadyAboutPlayerState(),
-        turnsCompleted: this.gameState.players[whoseTurnWasIt].turnsCompleted + 1,
-        myTurn: false,
-        currentOrientation: this.gameState.players[whoseTurnWasIt].currentOrientation,
-        currentTack: this.gameState.players[whoseTurnWasIt].currentTack,
-        movementHistory: this.gameState.players[whoseTurnWasIt].movementHistory,
-        bonusCardsInHand: this.gameState.players[whoseTurnWasIt].bonusCardsInHand,
-        spinnakerRaised: this.gameState.players[whoseTurnWasIt].spinnakerRaised,
-      };
+      if (whoseTurnWasIt) {
+        this.gameState.players[whoseTurnWasIt] = {
+          ...new ReadyAboutPlayerState(),
+          turnsCompleted: this.gameState.players[whoseTurnWasIt].turnsCompleted + 1,
+          myTurn: false,
+          currentOrientation: this.gameState.players[whoseTurnWasIt].currentOrientation,
+          currentTack: this.gameState.players[whoseTurnWasIt].currentTack,
+          movementHistory: this.gameState.players[whoseTurnWasIt].movementHistory,
+          bonusCardsInHand: this.gameState.players[whoseTurnWasIt].bonusCardsInHand,
+          spinnakerRaised: this.gameState.players[whoseTurnWasIt].spinnakerRaised,
+        };
+      }
       // Determine whose turn is next (respecting the skipTurns mechanic)
-      let whoseTurnIsItNext = this.turnOrder[(this.turnOrder.indexOf(whoseTurnWasIt) + 1) % this.turnOrder.length];
+      let whoseTurnIsItNext = "player_1";
+      if (whoseTurnWasIt) {
+        whoseTurnIsItNext = this.turnOrder[(this.turnOrder.indexOf(whoseTurnWasIt) + 1) % this.turnOrder.length];
+      }
       while (this.gameState.skipTurns.includes(whoseTurnIsItNext)) {
         // Skip this player's turn and remove them from the skipTurns list
         this.gameState.skipTurns = this.gameState.skipTurns.filter(playerId => playerId !== whoseTurnIsItNext);
@@ -383,6 +439,9 @@ export class ReadyAboutSession {
       this.enableInteractions();
     },
     DRAW_AND_RESOLVE_WEATHER: async () => {
+      if (this.activePlayerId !== this.myPlayerId) {
+        return;
+      }
       // Draw a weather card
       if (!this.gameState.weatherCardDeck.length) {
         this.refillWeatherCardDeck();
@@ -400,13 +459,8 @@ export class ReadyAboutSession {
           // Nothing happens.
           break;
         case "plus_one_speed":
-          // Add 1 to the active player's speed this turn.
-          for (const dir of CARDINAL_DIRECTIONS) {
-            this.activePlayerState.moveOptions[dir].factors.push({
-              delta: 1,
-              reason: `${card.title} +1 speed.`,
-            });
-          }
+          // Adds 1 to the active player's speed this turn,
+          // calculated in RECALC_ACTIVE_PLAYER_MOVE_OPTIONS
           break;
         case "wind_change_nw":
           this.gameState.windDirection = "NW";
@@ -465,6 +519,9 @@ export class ReadyAboutSession {
       await this.commit();
     },
     DRAW_BONUS_CARD: async () => {
+      if (this.activePlayerId !== this.myPlayerId) {
+        return;
+      }
       // Draw a bonus card
       if (!this.gameState.bonusCardDeck.length) {
         this.refillBonusCardDeck();
@@ -477,6 +534,9 @@ export class ReadyAboutSession {
       await this.commit();
     },
     PLAY_BONUS: async bonusCardId => {
+      if (this.activePlayerId !== this.myPlayerId) {
+        return;
+      }
       // 0. Validate that the active player actually has this bonus card in hand,
       //    and it is not the result of e.g. a lag between the DOM and the game state
       const card = this.activePlayerState.bonusCardsInHand.find(c => c.id === bonusCardId);
@@ -552,27 +612,30 @@ export class ReadyAboutSession {
      * Calculate next active player's speed in every direction
      */
     RECALC_ACTIVE_PLAYER_MOVE_OPTIONS: async () => {
+      if (!this.activePlayerState) return;
       // Test-move in every direction
       for (const dir of CARDINAL_DIRECTIONS) {
         // Reset the movement factors
         this.activePlayerState.moveOptions[dir].factors = [];
         // Get the base speed for this direction based on wind direction and orientation
-        let [, tack, baseSpeed] = this.getActivePlayerPointOfSailForOrientation(dir);
+        let [, wouldBeTack, baseSpeed] = this.getActivePlayerPointOfSailForOrientation(dir);
         let finalSpeed = baseSpeed;
+        let dirIsIrons = false;
         // Define the "irons" factor
         if (dir === this.gameState.windDirection) {
           this.activePlayerState.moveOptions[dir].factors.push({
             cap: 0,
             reason: "You cannot sail directly into the wind.",
           });
+          dirIsIrons = true;
         }
         // Apply tacking penalty if this would be a tack, and only if finalSpeed > 1 at this point
         if (
           finalSpeed > 1 &&
           !this.activePlayerState.ignoreTackingPenalty &&
-          tack !== this.activePlayerState.currentTack &&
-          tack !== "downwind" &&
-          tack !== "upwind"
+          wouldBeTack !== this.activePlayerState.currentTack &&
+          wouldBeTack !== "downwind" &&
+          wouldBeTack !== "upwind"
         ) {
           finalSpeed -= 1;
           this.activePlayerState.moveOptions[dir].factors.push({
@@ -581,11 +644,21 @@ export class ReadyAboutSession {
           });
         }
         // Apply spinnaker bonus if the player has it raised and the tack is downwind
-        if (this.activePlayerState.spinnakerRaised && tack === "downwind") {
+        if (this.activePlayerState.spinnakerRaised && wouldBeTack === "downwind") {
           finalSpeed += 1;
           this.activePlayerState.moveOptions[dir].factors.push({
             delta: 1,
             reason: "Spinnaker raised (speed +1).",
+          });
+        }
+        // Apply the plus_one_speed weather card if it is active
+        const activeWeatherCard =
+          this.gameState.weatherCardDiscard?.[(this.gameState.weatherCardDiscard?.length ?? 0) - 1];
+        if (!dirIsIrons && activeWeatherCard?.id === "plus_one_speed") {
+          finalSpeed += 1;
+          this.activePlayerState.moveOptions[dir].factors.push({
+            delta: 1,
+            reason: `${activeWeatherCard.title} +1 speed.`,
           });
         }
         // Now test moving in this direction, up to the current finalSpeed
@@ -593,7 +666,9 @@ export class ReadyAboutSession {
         // If we collided with something, and we don't have right of way,
         // cap the speed at the number of steps we could actually move
         if (collisions.length > 0) {
-          const playersWhoNeedToMove = this.checkRightOfWay(collisions);
+          console.log("checking right of way...", collisions);
+          const playersWhoNeedToMove = this.checkRightOfWay(collisions, dir);
+          console.log("checking right of way: ", playersWhoNeedToMove);
           if (!playersWhoNeedToMove.length) {
             finalSpeed = stepsMoved;
             this.activePlayerState.moveOptions[dir].factors.push({
@@ -601,8 +676,9 @@ export class ReadyAboutSession {
               reason: `Speed capped because ${collisions[0].id || "a " + collisions[0].type} is in your way.`,
             });
           } else {
+            console.log("Right of way!", playersWhoNeedToMove);
             this.activePlayerState.moveOptions[dir].factors.push({
-              reason: `You have right of way over ${playersWhoNeedToMove[0].id}!`,
+              reason: `You have right of way over ${playersWhoNeedToMove[0]}!`,
             });
           }
         }
@@ -615,7 +691,7 @@ export class ReadyAboutSession {
             if (
               GridGameBoard.segmentsIntersect(
                 movementLineSegment.map(p => [p.x, p.y]).flat(),
-                this.startingLineSegment.map(p => [p.x, p.y]).flat(),
+                this.startingLineSegment?.map(p => [p.x, p.y]).flat(),
               )
             ) {
               finalSpeed = successfulSteps;
@@ -631,80 +707,107 @@ export class ReadyAboutSession {
         }
         // Now detect if anyone blocks our wind on any of the steps in this direction:
         // --> For each step that our current speed allows us to take:
-        for (let step = 1; step <= finalSpeed; step++) {
-          // --> From the location of this step, do a testMovePiece for each of the 2 steps in the direction of the wind
-          const currentActivePlayerPos = this.board.piecePositions[this.activePlayerId];
-          const { dx, dy } = this.getXYDeltaFromDir(this.gameState.windDirection);
-          // Step 1 in the direction of the wind
+        for (let step = 0; step <= finalSpeed; step++) {
+          // --> From the location of this step, do a testMovePiece in the direction of the wind
+          let currentActivePlayerPos = this.board.piecePositions[this.activePlayerId];
+          const { dx, dy } = this.getXYDeltaFromDir(dir);
+          currentActivePlayerPos = {
+            x: currentActivePlayerPos.x + dx * step,
+            y: currentActivePlayerPos.y + dy * step,
+          };
+          const { dx: dxWind, dy: dyWind } = this.getXYDeltaFromDir(this.gameState.windDirection);
+          // Check 1 space into the direction of the wind
           const collisions1 = this.board.testPlacePiece(this.activePlayerId, {
-            x: currentActivePlayerPos.x + dx * 1,
-            y: currentActivePlayerPos.y + dy * 1,
-          });
-          // Step 2 in the direction of the wind
-          const collisions2 = this.board.testPlacePiece(this.activePlayerId, {
-            x: currentActivePlayerPos.x + dx * 2,
-            y: currentActivePlayerPos.y + dy * 2,
+            x: currentActivePlayerPos.x + dxWind,
+            y: currentActivePlayerPos.y + dyWind,
           });
           // --> Any collisions in these test-moves that are players (not buoys) are wind blockers
-          const windBlockers = [...collisions1, ...collisions2].filter(
+          const windBlockers = [...collisions1].filter(
             c => Object.keys(this.gameState.players).includes(c.id) && c.id !== this.activePlayerId,
           );
           if (windBlockers.length > 0) {
             // --> If any wind blockers are found, apply a -1 speed penalty for this direction
-            finalSpeed -= 1;
-            this.activePlayerState.moveOptions[dir].factors.push({
-              delta: -1,
-              reason: `Wind blocked by ${windBlockers.map(c => c.id).join(", ")}.`,
-            });
+            if (finalSpeed > 1) {
+              finalSpeed -= 1;
+              this.activePlayerState.moveOptions[dir].factors.push({
+                delta: -1,
+                reason: `Wind blocked by ${windBlockers.map(c => c.id).join(", ")}.`,
+              });
+            } else {
+              this.activePlayerState.moveOptions[dir].factors.push({
+                delta: -1,
+                reason: `Wind blocked by ${windBlockers.map(c => c.id).join(", ")}; speed capped at 1`,
+              });
+            }
           }
         }
 
         // Finally, set the calculated speed for this direction
-        this.activePlayerState.moveOptions[dir].speed = finalSpeed;
-
-        // Assign the correct color to the associated control
-        const controlElement = document.querySelector(`#compass-rose-control-${dir.toLowerCase()}`);
-        if (controlElement) {
-          if (tack === "upwind") {
-            controlElement.style.color = "#a1a1a1";
-          } else if (tack === "downwind") {
-            controlElement.setAttribute("data-tack", this.activePlayerState.currentTack);
-          } else {
-            controlElement.setAttribute("data-tack", tack);
-          }
-        }
+        this.activePlayerState.moveOptions[dir].speed = Math.max(finalSpeed, 0);
+      }
+      if (this.myTurn) {
+        this.commit();
       }
       this.render();
     },
     SAIL: async () => {
-      this.disableInteractions();
+      if (!this.myTurn) {
+        return;
+      }
+      // this.disableInteractions();
       const acceptedMoveOption = this.activePlayerState.moveOptions[this.activePlayerState.currentOrientation];
       const effectiveSpeed = acceptedMoveOption.speed;
       const effectiveFactors = acceptedMoveOption.factors;
       // Set the new currentTack
       const [, tack] = this.getActivePlayerPointOfSailForOrientation(this.activePlayerState.currentOrientation);
-      this.activePlayerState.currentTack = tack;
+      if (tack !== "upwind" && tack !== "downwind") {
+        this.activePlayerState.currentTack = tack;
+      }
       // If currentTack is not "downwind", spinnakerRaised is reset to false
       if (tack !== "downwind") {
         this.activePlayerState.spinnakerRaised = false;
       }
-      // Execute the move
+      // Move the pieces
       const oldPos = this.board.piecePositions[this.activePlayerId];
-      const [collisions] = this.testMovePlayerStepsInDirection(
+      let [collisions, madeItToPos, stepsMoved] = this.testMovePlayerStepsInDirection(
         this.activePlayerId,
         this.activePlayerState.currentOrientation,
         effectiveSpeed,
       );
-      const [madeItToPos, stepsMoved] = await this.movePlayerStepsInDirection(
-        this.activePlayerId,
-        this.activePlayerState.currentOrientation,
-        effectiveSpeed,
-      );
-      // Move any players who got right-of-way'd
-      const playersWhoNeedToMove = this.checkRightOfWay(collisions);
+      // FIRST, move any players who got right-of-way'd
+      const playersWhoNeedToMove = this.checkRightOfWay(collisions, this.activePlayerState.currentOrientation);
       for (const playerId of playersWhoNeedToMove) {
         await this.movePlayerStepsInDirection(playerId, this.downwindDirection, 1);
       }
+      // Refresh madeItToPos and stepsMoved now that the right-of-way players have moved
+      [, madeItToPos, stepsMoved] = this.testMovePlayerStepsInDirection(
+        this.activePlayerId,
+        this.activePlayerState.currentOrientation,
+        effectiveSpeed,
+      );
+      // THEN, move the active player and animate the cursor
+      await Promise.all([
+        this.movePlayerStepsInDirection(this.activePlayerId, this.activePlayerState.currentOrientation, effectiveSpeed),
+        // Simultaneously animate the cursor element, in sync with the piece
+        new Promise(resolve => {
+          const cursorElement = document.querySelector("#active-piece-cursor");
+          // Small delay just to make the UX smoother
+          setTimeout(() => {
+            animations.push({
+              target: cursorElement,
+              options: {
+                left: madeItToPos.x * this.board.dimensions.step,
+                bottom: madeItToPos.y * this.board.dimensions.step,
+                duration: 0.4 * stepsMoved,
+                ease: "power1.inOut",
+                onComplete: () => {
+                  setTimeout(resolve, 100);
+                },
+              },
+            });
+          }, 505);
+        }),
+      ]);
       await this.commit();
       // Log the move
       this.activePlayerState.movementHistory.push({
@@ -715,19 +818,26 @@ export class ReadyAboutSession {
         factors: effectiveFactors,
         timestamp: new Date().toISOString(),
       });
-      await this.commit();
+      // Don't await this one
+      this.commit();
       this.render();
-      this.stateTransitions.CYCLE_TURN();
+      await this.stateTransitions.CYCLE_TURN();
     },
   };
 
   eventListeners = [];
 
   constructor() {
+    window.readyAboutSession = this;
     setTimeout(() => {
       (async () => {
-        if (window.location.search.includes("id=")) {
-          this.hydrateFromURL();
+        const idFromURL = new URLSearchParams(window.location.search).get("id");
+        if (idFromURL) {
+          this.id = idFromURL;
+          this.myPlayerId = window.localStorage.getItem("readyAbout_" + this.id + "_myPlayerId");
+        }
+        if (idFromURL) {
+          await this.hydrateFromURL();
         } else {
           // Construct our shuffled card decks
           this.refillWeatherCardDeck();
@@ -735,30 +845,29 @@ export class ReadyAboutSession {
 
           await this.commit();
           // For testing, place our pieces here -- later, let the user do it
-          // this.stateTransitions.PLACE_PIECE("marker_buoy_2", { x: 10, y: 40 });
-          await this.stateTransitions.PLACE_PIECE("player_1", { x: 11, y: 3 });
-          this.gameState.players["player_1"] = {
-            ...new ReadyAboutPlayerState(),
-            myTurn: true, // Player 1 starts the game
-          };
-          await this.stateTransitions.PLACE_PIECE("player_2", { x: 10, y: 4 });
+          this.gameState.players["player_1"] = { ...new ReadyAboutPlayerState() };
           this.gameState.players["player_2"] = { ...new ReadyAboutPlayerState() };
-          this.turnOrder.push("player_2");
-          await this.stateTransitions.PLACE_PIECE("player_3", { x: 9, y: 5 });
           this.gameState.players["player_3"] = { ...new ReadyAboutPlayerState() };
+          this.turnOrder.push("player_1");
+          this.turnOrder.push("player_2");
           this.turnOrder.push("player_3");
-          await this.stateTransitions.PLACE_PIECE("starting_buoy_port", { x: 12, y: 6 });
-          await this.stateTransitions.PLACE_PIECE("starting_buoy_starboard", { x: 18, y: 6 });
-          await this.stateTransitions.PLACE_PIECE("marker_buoy_1", { x: 15, y: 25 });
+          await this.stateTransitions.PLACE_PIECES([
+            ["player_1", { x: 11, y: 3 }],
+            ["player_2", { x: 10, y: 4 }],
+            ["player_3", { x: 9, y: 5 }],
+            ["starting_buoy_port", { x: 12, y: 6 }],
+            ["starting_buoy_starboard", { x: 18, y: 6 }],
+            ["marker_buoy_1", { x: 15, y: 25 }],
+          ]);
         }
 
-        window.readyAboutSession = this;
         this.render();
 
         onSnapshot(doc(getFirestore(this.firebaseApp), "ready-about-sessions", this.id), snapshot => {
           if (snapshot.exists()) {
             const data = snapshot.data();
             this.hydrateFromObject(data);
+            this.render();
           }
         });
       })();
@@ -816,8 +925,6 @@ export class ReadyAboutSession {
   }
 
   async hydrateFromURL() {
-    this.hydrationInProgress = true;
-    this.render();
     const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get("id");
     if (sessionId) {
@@ -831,8 +938,7 @@ export class ReadyAboutSession {
         console.warn(`No ReadyAboutSession found in Firestore with id ${this.id}.`);
       }
     }
-    this.hydrationInProgress = false;
-    this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
+    await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
     this.render();
   }
 
@@ -852,21 +958,121 @@ export class ReadyAboutSession {
       window.history.replaceState({}, "", newUrl.toString());
     }
     try {
-      await setDoc(doc(db, "ready-about-sessions", this.id), {
-        id: this.id,
-        gameState: this.gameState,
-        interactionsDisabled: this.interactionsDisabled,
-        turnOrder: this.turnOrder,
-        weatherCardsConfig: this.weatherCardsConfig,
-        bonusCardsConfig: this.bonusCardsConfig,
-        board: {
-          dimensions: this.board.dimensions,
-          piecePositions: this.board.piecePositions,
-          pieceTypes: this.board.pieceTypes,
-          availablePieces: this.board.availablePieces,
-        },
-      });
-      console.log(`Committed ReadyAboutSession ${this.id} to Firestore.`);
+      const newState = JSON.parse(
+        JSON.stringify({
+          id: this.id,
+          gameState: this.gameState,
+          interactionsDisabled: this.interactionsDisabled,
+          turnOrder: this.turnOrder,
+          weatherCardsConfig: this.weatherCardsConfig,
+          bonusCardsConfig: this.bonusCardsConfig,
+          board: {
+            dimensions: this.board.dimensions,
+            piecePositions: this.board.piecePositions,
+            pieceTypes: this.board.pieceTypes,
+            availablePieces: this.board.availablePieces,
+          },
+        }),
+      );
+      const updates = { ...newState };
+
+      // Delete fields that are unchanged
+      if (this.lastCommittedState) {
+        for (const key of Object.keys(updates)) {
+          if (JSON.stringify(updates[key]) === JSON.stringify(this.lastCommittedState[key])) {
+            delete updates[key];
+          }
+        }
+      }
+      // Now loop through the fields on `board` and delete any that are unchanged
+      if (updates.board && this.lastCommittedState?.board) {
+        for (const key of Object.keys(updates.board)) {
+          if (JSON.stringify(updates.board[key]) === JSON.stringify(this.lastCommittedState.board[key])) {
+            delete updates.board[key];
+          }
+        }
+      }
+      // Now loop through the fields on `gameState` and delete any that are unchanged
+      if (updates.gameState && this.lastCommittedState?.gameState) {
+        for (const key of Object.keys(updates.gameState)) {
+          if (key === "players") {
+            // Loop through the players and delete any that are unchanged
+            for (const playerId of Object.keys(updates.gameState.players)) {
+              if (
+                JSON.stringify(updates.gameState.players[playerId]) ===
+                JSON.stringify(this.lastCommittedState.gameState.players[playerId])
+              ) {
+                delete updates.gameState.players[playerId];
+              }
+            }
+          } else {
+            if (JSON.stringify(updates.gameState[key]) === JSON.stringify(this.lastCommittedState.gameState[key])) {
+              delete updates.gameState[key];
+            }
+          }
+        }
+      }
+
+      // Finally, call `setDoc` for every field and sub-field that has changed, to avoid overwriting unchanged fields
+      const promises = [];
+      if (!this.lastCommittedState) {
+        promises.push(setDoc(doc(db, "ready-about-sessions", this.id), newState, { merge: true }));
+      } else {
+        for (const [key, value] of Object.entries(updates)) {
+          if (key === "gameState") {
+            for (const [subKey, subValue] of Object.entries(value)) {
+              console.log(`Updating gameState.${subKey} to`, subValue);
+              if (subKey === "players") {
+                for (const [playerId, playerState] of Object.entries(subValue)) {
+                  console.log(`Updating gameState.players.${playerId} to`, playerState);
+                  promises.push(
+                    setDoc(
+                      doc(db, "ready-about-sessions", this.id),
+                      {
+                        gameState: {
+                          players: {
+                            [playerId]: playerState,
+                          },
+                        },
+                      },
+                      {
+                        merge: true,
+                      },
+                    ),
+                  );
+                }
+              } else {
+                promises.push(
+                  setDoc(
+                    doc(db, "ready-about-sessions", this.id),
+                    {
+                      gameState: {
+                        [subKey]: subValue,
+                      },
+                    },
+                    { merge: true },
+                  ),
+                );
+              }
+            }
+          } else if (key === "board") {
+            for (const [subKey, subValue] of Object.entries(value)) {
+              console.log(`Updating board.${subKey} to`, subValue);
+              promises.push(
+                setDoc(doc(db, "ready-about-sessions", this.id), { board: { [subKey]: subValue } }, { merge: true }),
+              );
+            }
+          } else {
+            console.log(`Updating ${key} to`, value);
+            promises.push(setDoc(doc(db, "ready-about-sessions", this.id), { [key]: value }, { merge: true }));
+          }
+        }
+      }
+      if (promises.length) {
+        await Promise.all(promises);
+        this.lastCommittedState = JSON.parse(JSON.stringify(newState));
+        console.log(`Committed ReadyAboutSession ${this.id} to Firestore.`);
+      }
     } catch (error) {
       console.error("Error committing ReadyAboutSession to Firestore:", error);
     }
@@ -891,15 +1097,11 @@ export class ReadyAboutSession {
     // Render the control panel
     CARDINAL_DIRECTIONS.forEach(dir => {
       const button = document.querySelector(`#compass-rose-control-${dir.toLowerCase()} button`);
-      if (button) {
+      if (button && this.activePlayerState) {
         const speedInThisDir = this.activePlayerState.moveOptions[dir].speed;
-        if (this.interactionsDisabled || !this.activePlayerState.myTurn) {
+        if (this.interactionsAreDisabled) {
           button.disabled = true;
-          if (this.activePlayerState.myTurn) {
-            button.querySelector("span").innerHTML = `${speedInThisDir}`;
-          } else {
-            button.querySelector("span").innerHTML = "";
-          }
+          button.querySelector("span").innerHTML = `${speedInThisDir}`;
         } else {
           button.disabled = false;
           const handler = () => this.handleMovementOptionClick(dir);
@@ -914,14 +1116,36 @@ export class ReadyAboutSession {
         }
       }
       const controlPetalTooltip = document.querySelector(`#compass-rose-control-${dir.toLowerCase()} .tooltip`);
-      if (controlPetalTooltip) {
+      if (controlPetalTooltip && this.activePlayerState) {
         let factors = this.activePlayerState.moveOptions[dir].factors;
-        if (this.activePlayerState.myTurn && factors.length > 0) {
-          controlPetalTooltip.innerHTML = factors.map(f => `<p>${f.reason}</p>`).join("");
+        if (this.myTurn && factors.length > 0) {
+          // If "starting line cannot be crossed" is a factor, we don't need to show any others
+          const startingLineFactor = factors.find(f =>
+            f.reason.toLowerCase().includes("starting line cannot be crossed"),
+          );
+          if (startingLineFactor) {
+            controlPetalTooltip.innerHTML = `<p>${startingLineFactor.reason}</p>`;
+          } else {
+            controlPetalTooltip.innerHTML = factors.map(f => `<p>${f.reason}</p>`).join("");
+          }
           controlPetalTooltip.style.display = "block";
         } else {
           controlPetalTooltip.innerHTML = "";
           controlPetalTooltip.style.display = "none";
+        }
+      }
+      // Assign the correct color to the associated control
+      if (this.activePlayerState) {
+        let [, wouldBeTack] = this.getActivePlayerPointOfSailForOrientation(dir);
+        const controlElement = document.querySelector(`#compass-rose-control-${dir.toLowerCase()}`);
+        if (controlElement) {
+          if (wouldBeTack === "upwind") {
+            controlElement.style.color = "#a1a1a1";
+          } else if (wouldBeTack === "downwind") {
+            controlElement.setAttribute("data-tack", this.activePlayerState.currentTack);
+          } else {
+            controlElement.setAttribute("data-tack", wouldBeTack);
+          }
         }
       }
     });
@@ -942,7 +1166,7 @@ export class ReadyAboutSession {
     }
     // Render bonus cards
     document.getElementById("bonus-cards-container").innerHTML = "";
-    this.activePlayerState.bonusCardsInHand.forEach(card => {
+    this.activePlayerState?.bonusCardsInHand.forEach(card => {
       const cardElement = document.createElement("div");
       cardElement.classList.add("playing-card");
       cardElement.classList.add("bonus-card");
@@ -959,7 +1183,7 @@ export class ReadyAboutSession {
     });
     // Render weather card
     document.getElementById("active-weather-card-container").innerHTML = "";
-    const lastWeatherCard = this.gameState.weatherCardDiscard[this.gameState.weatherCardDiscard.length - 1];
+    const lastWeatherCard = this.gameState?.weatherCardDiscard?.[this.gameState?.weatherCardDiscard?.length - 1];
     if (lastWeatherCard) {
       const cardElement = document.createElement("div");
       cardElement.classList.add("playing-card");
@@ -968,6 +1192,7 @@ export class ReadyAboutSession {
       document.getElementById("active-weather-card-container").appendChild(cardElement);
     }
     // Based on the move history of each player, draw their path on the board using their color
+    // FIXME: Line isn't rendering for some reason
     // Object.entries(this.gameState.players).forEach(([playerId, playerState]) => {
     //   if (this.board.piecePositions[playerId]) {
     //     const playerColor = this.board.getConfigForPiece(playerId).color || "#a1a1a1";
@@ -987,6 +1212,58 @@ export class ReadyAboutSession {
     //     pathElement.setAttribute("points", points.join(" "));
     //   }
     // });
+    // Draw a dotted line between the port and starboard starting buoys
+    const startingBuoyPortPos = this.board.piecePositions.starting_buoy_port;
+    const startingBuoyStarboardPos = this.board.piecePositions.starting_buoy_starboard;
+    if (startingBuoyPortPos && startingBuoyStarboardPos) {
+      // TODO: Draw the line
+    }
+    // Render a cursor on top of the active piece (if any)
+    if (this.activePlayerId) {
+      const activePieceElement = this.board.getPieceElement(this.activePlayerId);
+      if (activePieceElement) {
+        // The cursor is a 4px thick ring;
+        // it gets its color from activePieceElement's data-piece-color attribute;
+        // it has a triangle overlayed on top of it, pointing in the direction of the active piece's orientation;
+        // the triangle overlay is offset so its longest side is hidden behind the ring, and it points outward from the ring.
+        const cursorElement = document.createElement("div");
+        cursorElement.id = "active-piece-cursor";
+        cursorElement.style.boxSizing = "content-box";
+        const sizePx = this.board.dimensions.step * 2.4;
+        cursorElement.style.width = `${sizePx}px`;
+        cursorElement.style.height = `${sizePx}px`;
+        cursorElement.style.borderRadius = `${sizePx}px`;
+        const borderWidth = 4;
+        cursorElement.style.border = `${borderWidth}px solid ${activePieceElement.getAttribute("data-piece-color")}`;
+        cursorElement.style.position = "absolute";
+        cursorElement.style.left = activePieceElement.style.left;
+        cursorElement.style.bottom = activePieceElement.style.bottom;
+        cursorElement.style.transform = `translate(calc(${cursorElement.style.width} * -0.5 - ${borderWidth}px), ${sizePx / 2 - this.board.dimensions.step + borderWidth}px)`;
+        // Create the triangle overlay, having transform-origin at the center of the cursorElement, and rotate it based on the active piece's orientation
+        const triangleOverlayContainer = document.createElement("div");
+        triangleOverlayContainer.style.position = "relative";
+        triangleOverlayContainer.style.width = `${sizePx}px`;
+        triangleOverlayContainer.style.height = `${sizePx}px`;
+        const activePieceOrientation = this.activePlayerState.currentOrientation;
+        triangleOverlayContainer.style.transform = `rotate(${DIRECTIONS_IN_DEGREES[activePieceOrientation]}deg)`;
+        triangleOverlayContainer.style.transformOrigin = "center center";
+        const triangleOverlay = document.createElement("div");
+        triangleOverlay.style.width = "0";
+        triangleOverlay.style.height = "0";
+        triangleOverlay.style.borderLeft = `${sizePx / 3}px solid transparent`;
+        triangleOverlay.style.borderRight = `${sizePx / 3}px solid transparent`;
+        triangleOverlay.style.borderBottom = `${sizePx / 3}px solid ${activePieceElement.getAttribute(
+          "data-piece-color",
+        )}`;
+        triangleOverlay.style.position = "absolute";
+        triangleOverlay.style.left = "50%";
+        triangleOverlay.style.bottom = "calc(100% + 7px)";
+        triangleOverlay.style.transform = `translate(-50%, 50%)`;
+        triangleOverlayContainer.appendChild(triangleOverlay);
+        cursorElement.appendChild(triangleOverlayContainer);
+        document.getElementById("grid-game-board").appendChild(cursorElement);
+      }
+    }
   }
 
   // Movement logic
@@ -1072,7 +1349,7 @@ export class ReadyAboutSession {
         portStartBuoyWasOnPortSideOfMove &&
         GridGameBoard.segmentsIntersect(
           movementLineSegment.map(p => [p.x, p.y]).flat(),
-          startingLineSegment.map(p => [p.x, p.y]).flat(),
+          startingLineSegment?.map(p => [p.x, p.y]).flat(),
         ) &&
         // Touches count as intersections, so a move to the line and a move off of the line will count here as 2 intersections.
         // This condition de-duplicates them.
@@ -1087,16 +1364,16 @@ export class ReadyAboutSession {
   playerHasFinishedRace(playerId) {
     return this.playerHasCrossedStartingLineTimes(playerId) >= 2 && this.playerHasRoundedMarkerBuoys(playerId);
   }
-  checkRightOfWay(collisions = []) {
+  checkRightOfWay(collisions = [], dir) {
     const playersWhoShouldMove = new Set();
     for (const collision of collisions) {
-      if (Object.keys(this.gameState.players).includes(collision)) {
-        const otherPlayerId = collision;
+      if (Object.keys(this.gameState.players).includes(collision.id)) {
+        const otherPlayerId = collision.id;
         const otherPlayerTack = this.gameState.players[otherPlayerId].currentTack;
-        const activePlayerTack = this.activePlayerState.currentTack;
-        if (activePlayerTack === "starboard" && otherPlayerTack === "port") {
+        const [, activePlayerWouldBeTack] = this.getActivePlayerPointOfSailForOrientation(dir);
+        if (activePlayerWouldBeTack === "starboard" && otherPlayerTack === "port") {
           // Active player has right of way; do nothing
-        } else if (activePlayerTack === "port" && otherPlayerTack === "starboard") {
+        } else if (activePlayerWouldBeTack === "port" && otherPlayerTack === "starboard") {
           playersWhoShouldMove.add(otherPlayerId);
         }
         // Leeward vs. windward: the leeward player has right of way
@@ -1167,6 +1444,7 @@ export class ReadyAboutSession {
   }
   handleMovementOptionClick(dir) {
     this.activePlayerState.currentOrientation = dir;
+    this.render();
     this.stateTransitions.SAIL();
   }
 }
@@ -1181,6 +1459,16 @@ function randomGameSessionId(length) {
 }
 
 const CARDINAL_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const DIRECTIONS_IN_DEGREES = {
+  N: 0,
+  NE: 45,
+  E: 90,
+  SE: 135,
+  S: 180,
+  SW: 225,
+  W: 270,
+  NW: 315,
+};
 
 // Initialize the game session and render the game
 new ReadyAboutSession();
