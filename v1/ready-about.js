@@ -1,4 +1,4 @@
-import { animations } from "./animation.js?v=20260812";
+import { animations, fromAnimations } from "./animation.js?v=20260812";
 import { GridGameBoard } from "./grid-game-board.js?v=20260812";
 import { initFirebase } from "./firebase-app.js?v=20260812";
 import {
@@ -16,6 +16,7 @@ class ReadyAboutPlayerState {
   currentOrientation = "N";
   currentTack = "port";
   ignoreTackingPenalty = false;
+  ignoreBlockedWind = false;
   ignoreWeather = false;
   rightOfWayForced = false;
   spinnakerRaised = false;
@@ -65,7 +66,7 @@ export class ReadyAboutSession {
           },
           yellow: {
             sprite: "sunfish-yellow-orange.png",
-            color: "#c8c800",
+            color: "#9b8e00",
           },
           red: {
             sprite: "sunfish-rwb.png",
@@ -77,11 +78,11 @@ export class ReadyAboutSession {
         variations: {
           red: {
             sprite: "buoy-red.png",
-            color: "#ff5d44",
+            color: "#dd5c11",
           },
           green: {
             sprite: "buoy-green.png",
-            color: "#44ff44",
+            color: "#559403",
           },
           white: {
             sprite: "buoy-white.png",
@@ -140,8 +141,8 @@ export class ReadyAboutSession {
     },
   });
   interactionsDisabled = false;
-  get interactionsAreDisabled() {
-    return this.interactionsDisabled || !this.myTurn;
+  get interactionsAreDisabledForMe() {
+    return this.interactionsDisabled || !this.myTurn || this.raceHasBeenWon;
   }
   turnOrder = [];
   weatherCardsConfig = {
@@ -238,9 +239,9 @@ export class ReadyAboutSession {
       subtitle: "Play this to eliminate a tacking penalty.",
       quantity: 4,
     },
-    undo_weather: {
+    ignore_weather: {
       title: "Old captain.",
-      subtitle: "Play after the 'weather' card is revealed on anyone’s turn to undo its effects.",
+      subtitle: "The next harmful 'weather' card does not affect you.",
       quantity: 4,
     },
     force_right_of_way: {
@@ -265,12 +266,7 @@ export class ReadyAboutSession {
   myPlayerIds = [];
   gameState = {
     windDirection: "NW",
-    players: {
-      player_1: {
-        ...new ReadyAboutPlayerState(),
-        myTurn: true, // Player 1 starts the game
-      },
-    },
+    players: {},
     skipTurns: [],
     weatherCardDeck: [],
     weatherCardDiscard: [],
@@ -316,6 +312,16 @@ export class ReadyAboutSession {
       case "NW":
         return "SE";
     }
+  }
+  get gameHasNotStarted() {
+    // It is no one's turn yet
+    return (
+      Object.keys(this.gameState.players).length == 0 ||
+      !Object.values(this.gameState.players).some(playerState => playerState.myTurn)
+    );
+  }
+  get raceHasBeenWon() {
+    return Object.keys(this.gameState.players).some(playerId => this.playerHasFinishedRace(playerId));
   }
   getXYDeltaFromDir(dir) {
     switch (dir) {
@@ -471,6 +477,32 @@ export class ReadyAboutSession {
         drawnAt: new Date().toISOString(),
       };
       this.gameState.weatherCardDiscard.push(card);
+      document.getElementById("active-weather-card-container").innerHTML = "";
+      this.render();
+      await new Promise(resolve => {
+        setTimeout(() => {
+          // Animate the weather card being drawn via fromAnimations (from center of screen to final pos)
+          const actualCardWidthPx = document.querySelector(".weather-card")?.getBoundingClientRect()?.width || 200;
+          const actualCardHeightPx = document.querySelector(".weather-card")?.getBoundingClientRect()?.height || 300;
+          fromAnimations.push({
+            target: `.weather-card[data-id="${card.id}"]`,
+            options: {
+              duration: 2,
+              delay: 1,
+              ease: "power4.inOut",
+              // The center of the screen
+              // x: window.innerWidth / 2 - actualCardWidthPx / 2,
+              y: -window.innerHeight / 2 - actualCardHeightPx / 3,
+              zIndex: 100,
+              scale: 1.5,
+              onComplete: () => {
+                resolve();
+              },
+            },
+          });
+        });
+      });
+      this.render();
       await this.commit();
 
       // Resolve its effects
@@ -508,7 +540,28 @@ export class ReadyAboutSession {
             1,
           );
           if (collisions.length === 0) {
-            await this.movePlayerStepsInDirection(this.activePlayerId, downwindDir, 1);
+            await Promise.all([
+              this.movePlayerStepsInDirection(this.activePlayerId, downwindDir, 1),
+              // Simultaneously animate the cursor element, in sync with the piece
+              new Promise(resolve => {
+                const cursorElement = document.querySelector("#active-piece-cursor");
+                // Small delay just to make the UX smoother
+                setTimeout(() => {
+                  animations.push({
+                    target: cursorElement,
+                    options: {
+                      left: madeItToPos.x * this.board.dimensions.step,
+                      bottom: madeItToPos.y * this.board.dimensions.step,
+                      duration: 0.4 * stepsMoved,
+                      ease: "power1.inOut",
+                      onComplete: () => {
+                        setTimeout(resolve, 100);
+                      },
+                    },
+                  });
+                }, 505);
+              }),
+            ]);
             this.activePlayerState.movementHistory.push({
               dir: downwindDir,
               oldPos,
@@ -551,7 +604,23 @@ export class ReadyAboutSession {
         drawnAt: new Date().toISOString(),
       };
       this.activePlayerState.bonusCardsInHand.push(card);
+      this.render();
+      // Animate the bonus card being drawn via fromAnimations (from center of screen to final pos)
+      const actualCardWidthPx = document.querySelector(".playing-card")?.getBoundingClientRect()?.width || 200;
+      const actualCardHeightPx = document.querySelector(".playing-card")?.getBoundingClientRect()?.height || 300;
+      fromAnimations.push({
+        target: `.bonus-card[data-id="${card.id}"]`,
+        options: {
+          duration: 0.5,
+          // The center of the screen
+          x: window.innerWidth / 2 - actualCardWidthPx / 2,
+          y: window.innerHeight / 2 - actualCardHeightPx / 2,
+        },
+      });
       await this.commit();
+      setTimeout(() => {
+        this.stateTransitions.CYCLE_TURN();
+      }, 1000);
     },
     PLAY_BONUS: async bonusCardId => {
       if (!this.myPlayerIds.includes(this.activePlayerId)) {
@@ -563,6 +632,11 @@ export class ReadyAboutSession {
       if (!card) {
         throw new Error(`Active player does not have bonus card ${bonusCardId} in hand.`);
       }
+      // Is this a card that is applied automatically based on some condition? If so,
+      // it is not playable in this way.
+      if (BONUS_CARDS_AUTO_APPLIED.includes(card.id)) {
+        return;
+      }
       // 1. Regardless of the card, apply -1 speed penalty for all movement options
       for (const dir of CARDINAL_DIRECTIONS) {
         this.activePlayerState.moveOptions[dir].speed -= 1;
@@ -571,53 +645,29 @@ export class ReadyAboutSession {
           reason: `Bonus card penalty; -1 speed.`,
         });
       }
+      this.render();
       await this.commit();
       // 2. Apply the specific effect of the card
       switch (card.id) {
+        case "skip_someones_turn":
+          this.gameState.skipTurns.push(this.activePlayerId);
+          break;
         case "force_wind_change":
           const newWindDirection = await this.promptActivePlayerForWindChange();
           this.gameState.windDirection = newWindDirection;
           break;
         case "plus_one_speed":
-          for (const dir of CARDINAL_DIRECTIONS) {
-            this.activePlayerState.moveOptions[dir].speed += 1;
-            this.activePlayerState.moveOptions[dir].factors.push({
-              delta: 1,
-              reason: `${card.title} +1 speed.`,
-            });
-          }
-          break;
         case "ignore_blocked_wind":
-          for (const dir of CARDINAL_DIRECTIONS) {
-            const blockedWindFactor = this.activePlayerState.moveOptions[dir].factors.find(factor =>
-              factor.reason.toLowerCase().includes("blocking your wind"),
-            );
-            if (blockedWindFactor) {
-              this.activePlayerState.moveOptions[dir].factors.push({
-                delta: -blockedWindFactor.delta,
-                reason: `${card.title} Blocked wind is ignored.`,
-              });
-            }
-          }
-          break;
         case "ignore_tacking_penalty":
-          this.activePlayerState.ignoreTackingPenalty = true;
-          break;
-        case "undo_weather":
-          this.activePlayerState.ignoreWeather = true;
-          break;
-        case "force_right_of_way":
-          this.activePlayerState.rightOfWayForced = true;
-          break;
+        case "ignore_weather":
         case "spinnaker":
-          this.activePlayerState.spinnakerRaised = true;
-          break;
-        case "skip_someones_turn":
-          this.gameState.skipTurns.push(this.activePlayerId);
+        case "force_right_of_way":
+          // Do nothing -- this is handled in the RECALC_ACTIVE_PLAYER_MOVE_OPTIONS and DRAW_AND_RESOLVE_WEATHER functions
           break;
         default:
           throw new Error(`Unknown bonus card: ${card.id}`);
       }
+      this.render();
       await this.commit();
       // 3. Discard the card
       this.gameState.bonusCardDiscard.push(card);
@@ -626,6 +676,7 @@ export class ReadyAboutSession {
       );
       // 4. Recalculate the move options
       await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
+      this.render();
       await this.commit();
     },
     /**
@@ -661,7 +712,7 @@ export class ReadyAboutSession {
           finalSpeed -= 1;
           this.activePlayerState.moveOptions[dir].factors.push({
             delta: -1,
-            reason: "Tacking slows you down (speed -1).",
+            reason: "–  Tacking slows you down.",
           });
         }
         // Apply spinnaker bonus if the player has it raised and the tack is downwind
@@ -669,7 +720,7 @@ export class ReadyAboutSession {
           finalSpeed += 1;
           this.activePlayerState.moveOptions[dir].factors.push({
             delta: 1,
-            reason: "Spinnaker raised (speed +1).",
+            reason: "+  Spinnaker raised.",
           });
         }
         // Apply the plus_one_speed weather card if it is active
@@ -679,7 +730,7 @@ export class ReadyAboutSession {
           finalSpeed += 1;
           this.activePlayerState.moveOptions[dir].factors.push({
             delta: 1,
-            reason: `${activeWeatherCard.title} +1 speed.`,
+            reason: `+  ${activeWeatherCard.title}`,
           });
         }
         // Now test moving in this direction, up to the current finalSpeed
@@ -727,8 +778,9 @@ export class ReadyAboutSession {
           }
         }
         // Now detect if anyone blocks our wind on any of the steps in this direction:
-        // --> For each step that our current speed allows us to take:
-        for (let step = 0; step <= finalSpeed; step++) {
+        // --> For our current pos plus each step that our current speed allows us to take
+        //     (NOT inclusive of the final position):
+        for (let step = 0; step < finalSpeed; step++) {
           // --> From the location of this step, do a testMovePiece in the direction of the wind
           let currentActivePlayerPos = this.board.piecePositions[this.activePlayerId];
           const { dx, dy } = this.getXYDeltaFromDir(dir);
@@ -829,7 +881,6 @@ export class ReadyAboutSession {
           }, 505);
         }),
       ]);
-      await this.commit();
       // Log the move
       this.activePlayerState.movementHistory.push({
         dir: this.activePlayerState.currentOrientation,
@@ -839,10 +890,11 @@ export class ReadyAboutSession {
         factors: effectiveFactors,
         timestamp: new Date().toISOString(),
       });
-      // Don't await this one
-      this.commit();
+      await this.commit();
       this.render();
-      await this.stateTransitions.CYCLE_TURN();
+      if (!this.raceHasBeenWon) {
+        await this.stateTransitions.CYCLE_TURN();
+      }
     },
   };
 
@@ -924,7 +976,8 @@ export class ReadyAboutSession {
     const newDataToAssign = {
       id: data.id,
       gameState: data.gameState,
-      interactionsDisabled: data.interactionsDisabled,
+      // Often gets stuck in `false`, so removing for now
+      // interactionsDisabled: data.interactionsDisabled,
       turnOrder: data.turnOrder,
       weatherCardsConfig: data.weatherCardsConfig,
       bonusCardsConfig: data.bonusCardsConfig,
@@ -1109,18 +1162,18 @@ export class ReadyAboutSession {
     // Render the game board
     this.board.render();
     // Prompt select piece (user does this by selecting a starting position)
-    if (Object.values(this.gameState.players).some(playerState => !playerState.claimed)) {
+    if (this.gameHasNotStarted) {
       this.board.toggleDotsClickable(true);
     } else {
       this.board.toggleDotsClickable(false);
     }
 
     // Render the control panel
-    CARDINAL_DIRECTIONS.forEach(dir => {
+    for (const dir of CARDINAL_DIRECTIONS) {
       const button = document.querySelector(`#compass-rose-control-${dir.toLowerCase()} button`);
       if (button && this.activePlayerState) {
         const speedInThisDir = this.activePlayerState.moveOptions[dir].speed;
-        if (this.interactionsAreDisabled) {
+        if (this.interactionsAreDisabledForMe) {
           button.disabled = true;
           button.querySelector("span").innerHTML = `${speedInThisDir}`;
         } else {
@@ -1169,7 +1222,79 @@ export class ReadyAboutSession {
           }
         }
       }
-    });
+    }
+    // Render the center area
+    const centerArea = document.getElementById("compass-rose-inner");
+    const winner = Object.keys(this.gameState.players).find(p => this.playerHasFinishedRace(p));
+    const winnerWasAlreadyRendered = !!document.getElementById("winner-announcement");
+    if (winner) {
+      centerArea.innerHTML = `
+        <div id="winner-announcement" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #2C3747; color: #fafafa;">
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+            <img style="height: 40px;" src="./assets/${this.board.getConfigForPiece(winner).sprite}" />
+            <h2 style="font-weight: 500; margin: 0 0 10px 0">
+              <em style="font-size: 2em; line-height: 1em">${this.gameState.players[winner].name || winner} wins!</em>
+            </h2>
+            <button class="normal-button" style="background-color: #37975a;"
+              onclick="window.location.href = window.location.origin + window.location.pathname"
+            >
+              Start a new game
+            </button>
+          </div>
+        </div>
+      `;
+      if (!winnerWasAlreadyRendered) {
+        setTimeout(() => {
+          confetti({
+            particleCount: 200,
+            spread: 100,
+            origin: { y: 0.6 },
+          });
+        });
+      }
+    } else if (!this.interactionsDisabled && this.gameHasNotStarted) {
+      centerArea.innerHTML = `
+        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #2C3747; color: #fafafa;">
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+            <h2 style="font-weight: 500; margin: 0 0 10px 0">
+              <em style="font-size: 2em; line-height: 1em">Place</em>
+              <br />
+              up to 4 pieces,
+              <br />
+              <em style="line-height: 1em">then</em>
+            </h2>
+            <button class="normal-button" style="background-color: #37975a;"
+              onclick="window.readyAboutSession.stateTransitions.CYCLE_TURN()"
+              ${Object.values(this.gameState.players).length > 0 ? "" : "disabled"}
+            >
+              Start the race!
+            </button>
+          </div>
+        </div>
+      `;
+    } else if (!this.interactionsAreDisabledForMe && this.myTurn) {
+      centerArea.innerHTML = `
+        <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #2C3747;">
+          <img src="./assets/choose-your-move-dir.png" alt="Choose your move direction, or..." style="position: absolute; top: 0; left: 0; width: 100%;" />
+          <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+            <!-- <button class="normal-button" onclick="window.readyAboutSession.stateTransitions.DRAW_BONUS_CARD()">Draw a <em>sailor's delight</em> card</button> -->
+            <button class="normal-button" onclick="window.readyAboutSession.stateTransitions.CYCLE_TURN()">End your turn</button>
+          </div>
+        </div>
+      `;
+    } else if (!this.interactionsDisabled && !this.myTurn) {
+      centerArea.innerHTML = `
+        <div style="width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; background: #2C3747;">
+          <h2>Waiting for other players to finish their turns...</h2>
+        </div>
+      `;
+    } else {
+      centerArea.innerHTML = `
+        <div style="width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; background: #2C3747;">
+          <img src="./assets/waves.svg" alt="Loading..." style="height: 157px" />
+        </div>
+      `;
+    }
 
     // Render the background
     switch (this.gameState.windDirection) {
@@ -1188,28 +1313,32 @@ export class ReadyAboutSession {
     }
 
     // Render bonus cards
-    document.getElementById("bonus-cards-container").innerHTML = "";
-    this.activePlayerState?.bonusCardsInHand.forEach(card => {
-      const cardElement = document.createElement("div");
-      cardElement.classList.add("playing-card");
-      cardElement.classList.add("bonus-card");
-      cardElement.innerHTML = `<div class="playing-card-text"><h3 class="cursive">${card.title}</h3><p>${card.subtitle}</p></div>`;
-      if (this.interactionsDisabled || !this.activePlayerState.myTurn) {
-        cardElement.classList.add("disabled");
-      } else {
-        cardElement.classList.remove("disabled");
-        const handler = () => this.stateTransitions.PLAY_BONUS(card.id);
-        cardElement.addEventListener("click", handler);
-        this.eventListeners.push({ element: cardElement, event: "click", handler });
-      }
-      document.getElementById("bonus-cards-container").appendChild(cardElement);
-    });
+    // document.getElementById("bonus-cards-container").innerHTML = "";
+    // this.activePlayerState?.bonusCardsInHand.forEach(card => {
+    //   const cardElement = document.createElement("div");
+    //   cardElement.classList.add("playing-card");
+    //   cardElement.classList.add("bonus-card");
+    //   if (!BONUS_CARDS_AUTO_APPLIED.includes(card.id)) {
+    //     cardElement.style.cursor = "pointer";
+    //   }
+    //   cardElement.innerHTML = `<div class="playing-card-text"><h3 class="cursive">${card.title}</h3><p>${card.subtitle}</p></div>`;
+    //   if (this.interactionsDisabled || !this.activePlayerState.myTurn) {
+    //     cardElement.classList.add("disabled");
+    //   } else {
+    //     cardElement.classList.remove("disabled");
+    //     const handler = () => this.stateTransitions.PLAY_BONUS(card.id);
+    //     cardElement.addEventListener("click", handler);
+    //     this.eventListeners.push({ element: cardElement, event: "click", handler });
+    //   }
+    //   document.getElementById("bonus-cards-container").appendChild(cardElement);
+    // });
 
     // Render weather card
     document.getElementById("active-weather-card-container").innerHTML = "";
     const lastWeatherCard = this.gameState?.weatherCardDiscard?.[this.gameState?.weatherCardDiscard?.length - 1];
     if (lastWeatherCard) {
       const cardElement = document.createElement("div");
+      cardElement.setAttribute("data-id", lastWeatherCard.id);
       cardElement.classList.add("playing-card");
       cardElement.classList.add("weather-card");
       cardElement.innerHTML = `<div class="playing-card-text"><h3 class="cursive">${lastWeatherCard.title}</h3><p>${lastWeatherCard.subtitle}</p></div>`;
@@ -1217,25 +1346,45 @@ export class ReadyAboutSession {
     }
     // Based on the move history of each player, draw their path on the board using their color
     // FIXME: Line isn't rendering for some reason
-    // Object.entries(this.gameState.players).forEach(([playerId, playerState]) => {
-    //   if (this.board.piecePositions[playerId]) {
-    //     const playerColor = this.board.getConfigForPiece(playerId).color || "#a1a1a1";
-    //     const pathElementId = `player-path-${playerId}`;
-    //     let pathElement = document.getElementById(pathElementId);
-    //     if (!pathElement) {
-    //       pathElement = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    //       pathElement.setAttribute("id", pathElementId);
-    //       pathElement.setAttribute("fill", "none");
-    //       pathElement.setAttribute("stroke", playerColor);
-    //       pathElement.setAttribute("stroke-width", "2");
-    //       document.getElementById("grid-game-board").appendChild(pathElement);
-    //     }
-    //     const points = playerState.movementHistory
-    //       .map(move => `${move.oldPos.x},${move.oldPos.y}`)
-    //       .concat(`${this.board.piecePositions[playerId].x},${this.board.piecePositions[playerId].y}`);
-    //     pathElement.setAttribute("points", points.join(" "));
-    //   }
-    // });
+    const existingSvgElement = document.getElementById("player-paths-svg");
+    const svgElement = existingSvgElement || document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    if (!existingSvgElement) {
+      svgElement.setAttribute("id", "player-paths-svg");
+      svgElement.setAttribute("width", "100%");
+      svgElement.setAttribute("height", "100%");
+      svgElement.style.position = "absolute";
+      svgElement.style.zIndex = 1;
+      svgElement.style.top = "0";
+      svgElement.style.left = "0";
+      svgElement.style.pointerEvents = "none";
+      svgElement.style.opacity = "0.2";
+      document.getElementById("grid-game-board").appendChild(svgElement);
+    }
+    svgElement.innerHTML = "";
+    Object.entries(this.gameState.players).forEach(([playerId, playerState]) => {
+      if (this.board.piecePositions[playerId]) {
+        const playerColor = this.board.getConfigForPiece(playerId).color || "#a1a1a1";
+        const pathElementId = `player-path-${playerId}`;
+        let pathElement = document.getElementById(pathElementId);
+        if (!pathElement) {
+          pathElement = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+          pathElement.setAttribute("id", pathElementId);
+          pathElement.setAttribute("fill", "none");
+          pathElement.setAttribute("stroke", playerColor);
+          pathElement.setAttribute("stroke-width", "2");
+          svgElement.appendChild(pathElement);
+        }
+        const points = playerState.movementHistory
+          .map(
+            move =>
+              `${move.oldPos.x * this.board.dimensions.step},${this.board.dimensions.heightPx - this.board.dimensions.step - move.oldPos.y * this.board.dimensions.step}`,
+          )
+          .concat(
+            `${this.board.piecePositions[playerId].x * this.board.dimensions.step},${this.board.dimensions.heightPx - this.board.dimensions.step - this.board.piecePositions[playerId].y * this.board.dimensions.step}`,
+          );
+        pathElement.setAttribute("points", points.join(" "));
+      }
+    });
     // Draw a dotted line between the port and starboard starting buoys
     const startingBuoyPortPos = this.board.piecePositions.starting_buoy_port;
     const startingBuoyStarboardPos = this.board.piecePositions.starting_buoy_starboard;
@@ -1250,6 +1399,19 @@ export class ReadyAboutSession {
         // it gets its color from activePieceElement's data-piece-color attribute;
         // it has a triangle overlayed on top of it, pointing in the direction of the active piece's orientation;
         // the triangle overlay is offset so its longest side is hidden behind the ring, and it points outward from the ring.
+        let cursorColor = activePieceElement.getAttribute("data-piece-color");
+        // Cursor color is the starboard color if the tack is starboard, and the port color if the tack is port
+        if (this.activePlayerState.currentTack === "starboard") {
+          const starboardBuoyColor = this.board.getConfigForPiece("starting_buoy_starboard")?.color;
+          if (starboardBuoyColor) {
+            cursorColor = starboardBuoyColor;
+          }
+        } else if (this.activePlayerState.currentTack === "port") {
+          const portBuoyColor = this.board.getConfigForPiece("starting_buoy_port")?.color;
+          if (portBuoyColor) {
+            cursorColor = portBuoyColor;
+          }
+        }
         const cursorElement = document.createElement("div");
         cursorElement.id = "active-piece-cursor";
         cursorElement.style.boxSizing = "content-box";
@@ -1258,7 +1420,7 @@ export class ReadyAboutSession {
         cursorElement.style.height = `${sizePx}px`;
         cursorElement.style.borderRadius = `${sizePx}px`;
         const borderWidth = 4;
-        cursorElement.style.border = `${borderWidth}px solid ${activePieceElement.getAttribute("data-piece-color")}`;
+        cursorElement.style.border = `${borderWidth}px solid ${cursorColor}`;
         cursorElement.style.position = "absolute";
         cursorElement.style.left = activePieceElement.style.left;
         cursorElement.style.bottom = activePieceElement.style.bottom;
@@ -1276,9 +1438,7 @@ export class ReadyAboutSession {
         triangleOverlay.style.height = "0";
         triangleOverlay.style.borderLeft = `${sizePx / 3}px solid transparent`;
         triangleOverlay.style.borderRight = `${sizePx / 3}px solid transparent`;
-        triangleOverlay.style.borderBottom = `${sizePx / 3}px solid ${activePieceElement.getAttribute(
-          "data-piece-color",
-        )}`;
+        triangleOverlay.style.borderBottom = `${sizePx / 3}px solid ${cursorColor}`;
         triangleOverlay.style.position = "absolute";
         triangleOverlay.style.left = "50%";
         triangleOverlay.style.bottom = "calc(100% + 7px)";
@@ -1319,51 +1479,98 @@ export class ReadyAboutSession {
     }
     return this.board.movePlayerInStepsAlongPath(playerId, pathAsListOfCoordinates, { animate });
   }
-  playerHasRoundedMarkerBuoys(playerId) {
-    const markerBuoy1Pos = this.board.piecePositions.marker_buoy_1;
-    const markerBuoy2Pos = this.board.piecePositions.marker_buoy_2 || this.board.piecePositions.marker_buoy_1;
-    if (!markerBuoy1Pos) {
-      throw new Error("Marker buoy is not placed on the board.");
-    }
+  playerHasRoundedBuoys(playerId, buoyPieceIds) {
+    const buoyPositions = buoyPieceIds.map(buoyId => this.board.piecePositions[buoyId]).filter(pos => pos);
     // 1. Make a rectangle from the two marker buoys
-    const minX = Math.min(markerBuoy1Pos.x, markerBuoy2Pos.x);
-    const maxX = Math.max(markerBuoy1Pos.x, markerBuoy2Pos.x);
-    const minY = Math.min(markerBuoy1Pos.y, markerBuoy2Pos.y);
-    const maxY = Math.max(markerBuoy1Pos.y, markerBuoy2Pos.y);
+    const minX = Math.min(...buoyPositions.map(pos => pos.x));
+    const maxX = Math.max(...buoyPositions.map(pos => pos.x));
+    const minY = Math.min(...buoyPositions.map(pos => pos.y));
+    const maxY = Math.max(...buoyPositions.map(pos => pos.y));
     const roundingMoves = new Set(); // Expect 1, 2, 3, 4, 5, 6 -- otherwise, not actually rounded
-    // 2. Has the player done the following, in this order?
-    //    a. Moved from being south of it to north of it
-    //    b. Moved from being west of it to east of it
-    //    c. Moved from being north of it to south of it
-    // If yes to 2, then the player has rounded the marker buoys. Otherwise, they have not.
-    for (const move of this.gameState.players[playerId].movementHistory) {
-      const { oldPos, newPos } = move;
-      if (oldPos.y < minY) {
-        roundingMoves.add(1);
-      }
-      if (roundingMoves.has(1) && newPos.y > maxY) {
-        roundingMoves.add(2);
-      }
-      if (roundingMoves.has(2) && oldPos.x < minX) {
-        roundingMoves.add(3);
-      }
-      if (roundingMoves.has(3) && newPos.x > maxX) {
-        roundingMoves.add(4);
-      }
-      if (roundingMoves.has(4) && oldPos.y > maxY) {
-        roundingMoves.add(5);
-      }
-      if (roundingMoves.has(5) && newPos.y < minY) {
-        roundingMoves.add(6);
+
+    if (buoyPieceIds.find(pid => pid.startsWith("start"))) {
+      // 2a. Has the player done the following, in this order?
+      //    a. Moved from being west of it to east of it
+      //    b. Moved from being north of it to south of it
+      //    c. Moved from being east of it to west of it
+      // If yes, then the player has rounded the marker buoys. Otherwise, they have not.
+      for (const move of this.gameState.players[playerId].movementHistory) {
+        const { oldPos, newPos } = move;
+        // west to east
+        if (oldPos.x < minX) {
+          roundingMoves.add(1);
+        }
+        if (roundingMoves.has(1) && newPos.x > maxX) {
+          roundingMoves.add(2);
+        }
+        // north to south
+        if (roundingMoves.has(2) && oldPos.y > maxY) {
+          roundingMoves.add(3);
+        }
+        if (roundingMoves.has(3) && newPos.y < minY) {
+          roundingMoves.add(4);
+        }
+        // east to west
+        if (roundingMoves.has(4) && oldPos.x > maxX) {
+          roundingMoves.add(5);
+        }
+        if (roundingMoves.has(5) && newPos.x < minX) {
+          roundingMoves.add(6);
+        }
       }
     }
+    if (buoyPieceIds.find(pid => pid.startsWith("marker"))) {
+      // 2b. Has the player done the following, in this order?
+      //    a. Moved from being south of it to north of it
+      //    b. Moved from being west of it to east of it
+      //    c. Moved from being north of it to south of it
+      // If yes, then the player has rounded the marker buoys. Otherwise, they have not.
+      for (const move of this.gameState.players[playerId].movementHistory) {
+        const { oldPos, newPos } = move;
+        // south to north
+        if (oldPos.y <= minY) {
+          roundingMoves.add(1);
+        }
+        if (roundingMoves.has(1) && newPos.y > maxY) {
+          roundingMoves.add(2);
+        }
+        // west to east
+        if (roundingMoves.has(2) && oldPos.x < minX) {
+          roundingMoves.add(3);
+        }
+        if (roundingMoves.has(3) && newPos.x > maxX) {
+          roundingMoves.add(4);
+        }
+        // north to south
+        if (roundingMoves.has(4) && oldPos.y > maxY) {
+          roundingMoves.add(5);
+        }
+        if (roundingMoves.has(5) && newPos.y < minY) {
+          roundingMoves.add(6);
+        }
+      }
+    }
+
     return Array.from(roundingMoves).join(",") === "1,2,3,4,5,6";
+  }
+  playerHasRoundedMarkerBuoys(playerId) {
+    return this.playerHasRoundedBuoys(
+      playerId,
+      Object.keys(this.board.availablePieces).filter(p => p.startsWith("marker")),
+    );
+  }
+  playerHasRoundedStarboardStartBuoy(playerId) {
+    if (this.board.availablePieces["starting_buoy_starboard"] === undefined) {
+      return false;
+    }
+    return this.playerHasRoundedBuoys(playerId, ["starting_buoy_starboard"]);
   }
   playerHasCrossedStartingLineTimes(playerId) {
     const startingLineSegment = this.startingLineSegment;
     const playerPos = this.board.piecePositions[playerId];
     if (!playerPos) {
-      throw new Error(`Player ${playerId} is not placed on the board.`);
+      console.warn(`Player ${playerId} is not placed on the board.`);
+      return 0;
     }
     let movesThatIntersected = [];
     let moveIdx = 0;
@@ -1390,7 +1597,11 @@ export class ReadyAboutSession {
     return movesThatIntersected.length;
   }
   playerHasFinishedRace(playerId) {
-    return this.playerHasCrossedStartingLineTimes(playerId) >= 2 && this.playerHasRoundedMarkerBuoys(playerId);
+    return (
+      this.playerHasCrossedStartingLineTimes(playerId) >= 2 &&
+      this.playerHasRoundedMarkerBuoys(playerId) &&
+      this.playerHasRoundedStarboardStartBuoy(playerId)
+    );
   }
   checkRightOfWay(collisions = [], dir) {
     const playersWhoShouldMove = new Set();
@@ -1497,6 +1708,14 @@ const DIRECTIONS_IN_DEGREES = {
   W: 270,
   NW: 315,
 };
+const BONUS_CARDS_AUTO_APPLIED = [
+  "plus_one_speed",
+  "ignore_blocked_wind",
+  "ignore_tacking_penalty",
+  "ignore_weather",
+  "spinnaker",
+  "force_right_of_way",
+];
 
 // Initialize the game session and render the game
 new ReadyAboutSession();
