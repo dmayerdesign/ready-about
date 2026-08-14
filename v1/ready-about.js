@@ -445,7 +445,7 @@ export class ReadyAboutSession {
         };
       }
       // Determine whose turn is next (respecting the skipTurns mechanic)
-      let whoseTurnIsItNext = "player_1";
+      let whoseTurnIsItNext = this.turnOrder[0] || "player_1";
       if (whoseTurnWasIt) {
         whoseTurnIsItNext = this.turnOrder[(this.turnOrder.indexOf(whoseTurnWasIt) + 1) % this.turnOrder.length];
       }
@@ -1610,12 +1610,11 @@ export class ReadyAboutSession {
         const otherPlayerId = collision.id;
         const otherPlayerTack = this.gameState.players[otherPlayerId].currentTack;
         const [, activePlayerWouldBeTack] = this.getActivePlayerPointOfSailForOrientation(dir);
+        // Starboard tack has right of way
         if (activePlayerWouldBeTack === "starboard" && otherPlayerTack === "port") {
-          // Active player has right of way; do nothing
-        } else if (activePlayerWouldBeTack === "port" && otherPlayerTack === "starboard") {
           playersWhoShouldMove.add(otherPlayerId);
         }
-        // Leeward vs. windward: the leeward player has right of way
+        // Leeward vs. windward: the LEEWARD player has right of way
         // i.e. the player FARTHER from the corner of the board that the wind is blowing from has right of way
         else {
           const windDir = this.gameState.windDirection;
@@ -1636,7 +1635,7 @@ export class ReadyAboutSession {
               activePlayerIsLeeward = activePlayerPos.x > otherPlayerPos.x && activePlayerPos.y < otherPlayerPos.y;
               break;
           }
-          if (!activePlayerIsLeeward) {
+          if (activePlayerIsLeeward) {
             playersWhoShouldMove.add(otherPlayerId);
           }
         }
