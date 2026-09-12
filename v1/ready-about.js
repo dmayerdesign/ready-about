@@ -941,6 +941,7 @@ export class ReadyAboutSession {
           if (snapshot.exists()) {
             const data = snapshot.data();
             this.hydrateFromObject(data);
+            this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
             this.render();
           }
         });
@@ -976,8 +977,7 @@ export class ReadyAboutSession {
     const newDataToAssign = {
       id: data.id,
       gameState: data.gameState,
-      // Often gets stuck in `false`, so removing for now
-      // interactionsDisabled: data.interactionsDisabled,
+      interactionsDisabled: data.interactionsDisabled ?? false,
       turnOrder: data.turnOrder,
       weatherCardsConfig: data.weatherCardsConfig,
       bonusCardsConfig: data.bonusCardsConfig,
@@ -991,6 +991,9 @@ export class ReadyAboutSession {
       }),
     };
     Object.assign(this, newDataToAssign);
+    if (this.activePlayerState && this.board.piecePositions?.[this.activePlayerId]) {
+      this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
+    }
     console.log(`Hydrated ReadyAboutSession ${this.id} from Firestore.`);
   }
 
