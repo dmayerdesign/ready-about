@@ -127,9 +127,10 @@ export class ReadyAboutSession {
     },
     onDotClick: async ({ x, y }) => {
       // Claim the first unclaimed player piece and place it at the clicked position
-      const unclaimedPlayerPieceId = Object.entries(this.board.availablePieces).find(([pieceId, pieceConfig]) => {
-        return pieceConfig.type === "player" && !this.gameState.players[pieceId]?.claimed;
-      })?.[0];
+      const unclaimedPlayerPieceId = Object.keys(this.board.availablePieces)
+        .filter(pieceId => this.board.availablePieces[pieceId].type === "player")
+        .sort()
+        .find(pieceId => !this.gameState.players[pieceId]?.claimed);
       if (unclaimedPlayerPieceId) {
         this.gameState.players[unclaimedPlayerPieceId] = { ...new ReadyAboutPlayerState(), claimed: true };
         this.turnOrder.push(unclaimedPlayerPieceId);
@@ -389,7 +390,6 @@ export class ReadyAboutSession {
   stateTransitions = {
     PLACE_PIECE: async (pieceId, { x, y }) => {
       this.disableInteractions();
-      await this.commit();
       await this.board.placePiece(pieceId, { x, y });
       try {
         await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
@@ -397,21 +397,23 @@ export class ReadyAboutSession {
         console.log("Error recalculating move options after placing piece:", e);
       }
       await this.commit();
-      this.enableInteractions();
+      await this.enableInteractions();
     },
     PLACE_PIECES: async pieces => {
       this.disableInteractions();
-      await this.commit();
-      for (const [pieceId, { x, y }] of pieces) {
-        await this.board.placePiece(pieceId, { x, y });
-      }
       try {
-        await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
-      } catch (e) {
-        console.log("Error recalculating move options after placing piece:", e);
+        for (const [pieceId, { x, y }] of pieces) {
+          await this.board.placePiece(pieceId, { x, y });
+        }
+        try {
+          await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
+        } catch (e) {
+          console.log("Error recalculating move options after placing piece:", e);
+        }
+        await this.commit();
+      } finally {
+        await this.enableInteractions();
       }
-      await this.commit();
-      this.enableInteractions();
     },
     CLAIM_PLAYER_PIECE: async playerId => {
       const existingMyPlayerIds = (window.localStorage.getItem("readyAbout_" + this.id + "_myPlayerIds") || "").split(
@@ -462,7 +464,7 @@ export class ReadyAboutSession {
       await this.stateTransitions.DRAW_AND_RESOLVE_WEATHER();
       // Calculate the new move options
       await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
-      this.enableInteractions();
+      await this.enableInteractions();
     },
     DRAW_AND_RESOLVE_WEATHER: async () => {
       if (!this.myPlayerIds.includes(this.activePlayerId)) {
@@ -477,6 +479,7 @@ export class ReadyAboutSession {
         drawnAt: new Date().toISOString(),
       };
       this.gameState.weatherCardDiscard.push(card);
+      await this.commit();
       document.getElementById("active-weather-card-container").innerHTML = "";
       this.render();
       await new Promise(resolve => {
@@ -503,7 +506,6 @@ export class ReadyAboutSession {
         });
       });
       this.render();
-      await this.commit();
 
       // Resolve its effects
       switch (card.id) {
@@ -818,9 +820,6 @@ export class ReadyAboutSession {
         // Finally, set the calculated speed for this direction
         this.activePlayerState.moveOptions[dir].speed = Math.max(finalSpeed, 0);
       }
-      if (this.myTurn) {
-        this.commit();
-      }
       this.render();
     },
     SAIL: async () => {
@@ -991,6 +990,22 @@ export class ReadyAboutSession {
       }),
     };
     Object.assign(this, newDataToAssign);
+    this.lastCommittedState = JSON.parse(
+      JSON.stringify({
+        id: this.id,
+        gameState: this.gameState,
+        interactionsDisabled: this.interactionsDisabled,
+        turnOrder: this.turnOrder,
+        weatherCardsConfig: this.weatherCardsConfig,
+        bonusCardsConfig: this.bonusCardsConfig,
+        board: {
+          dimensions: this.board.dimensions,
+          piecePositions: this.board.piecePositions,
+          pieceTypes: this.board.pieceTypes,
+          availablePieces: this.board.availablePieces,
+        },
+      }),
+    );
     if (this.activePlayerState && this.board.piecePositions?.[this.activePlayerId]) {
       this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
     }
@@ -1238,7 +1253,7 @@ export class ReadyAboutSession {
             <h2 style="font-weight: 500; margin: 0 0 10px 0">
               <em style="font-size: 2em; line-height: 1em">${this.gameState.players[winner].name || winner} wins!</em>
             </h2>
-            <button class="normal-button" style="background-color: #37975a;"
+            <button class="normal-button" data-testid="start-race" style="background-color: #37975a;"
               onclick="window.location.href = window.location.origin + window.location.pathname"
             >
               Start a new game
@@ -1266,7 +1281,7 @@ export class ReadyAboutSession {
               <br />
               <em style="line-height: 1em">then</em>
             </h2>
-            <button class="normal-button" style="background-color: #37975a;"
+            <button class="normal-button" data-testid="start-race" style="background-color: #37975a;"
               onclick="window.readyAboutSession.stateTransitions.CYCLE_TURN()"
               ${Object.values(this.gameState.players).length > 0 ? "" : "disabled"}
             >
@@ -1281,14 +1296,14 @@ export class ReadyAboutSession {
           <img src="./assets/choose-your-move-dir.png" alt="Choose your move direction, or..." style="position: absolute; top: 0; left: 0; width: 100%;" />
           <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
             <!-- <button class="normal-button" onclick="window.readyAboutSession.stateTransitions.DRAW_BONUS_CARD()">Draw a <em>sailor's delight</em> card</button> -->
-            <button class="normal-button" onclick="window.readyAboutSession.stateTransitions.CYCLE_TURN()">End your turn</button>
+            <button class="normal-button" data-testid="end-turn" onclick="window.readyAboutSession.stateTransitions.CYCLE_TURN()">End your turn</button>
           </div>
         </div>
       `;
     } else if (!this.interactionsDisabled && !this.myTurn) {
       centerArea.innerHTML = `
-        <div style="width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; background: #2C3747;">
-          <h2>Waiting for other players to finish their turns...</h2>
+        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #2C3747;">
+          <h2 style="font-size: 18px; color: rgba(255, 255, 255, 1); opacity: 0.7; text-align: center; padding: 0 15px"><em>Waiting for other players to finish their turns...</em></h2>
         </div>
       `;
     } else {
@@ -1666,8 +1681,9 @@ export class ReadyAboutSession {
     this.interactionsDisabled = true;
     this.render();
   }
-  enableInteractions() {
+  async enableInteractions() {
     this.interactionsDisabled = false;
+    await this.commit();
     this.render();
   }
   promptActivePlayerForWindChange() {

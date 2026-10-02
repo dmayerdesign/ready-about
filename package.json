@@ -1,0 +1,14 @@
+{
+  "name": "ready-about",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:multiplayer": "firebase emulators:exec --project ready-about-80b09 --only firestore \"playwright test\"",
+    "test:multiplayer:headed": "HEADED=1 firebase emulators:exec --project ready-about-80b09 --only firestore \"playwright test\""
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "firebase-tools": "^14.22.0",
+    "http-server": "^14.1.1"
+  }
+}

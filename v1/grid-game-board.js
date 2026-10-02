@@ -205,6 +205,9 @@ export class GridGameBoard {
         dot.style.margin = "0";
         dot.style.boxSizing = "content-box";
         dot.style.backgroundClip = "content-box";
+        dot.dataset.testid = "board-dot";
+        dot.dataset.gridX = x / this.#dimensions.step;
+        dot.dataset.gridY = this.#dimensions.heightPx / this.#dimensions.step - y / this.#dimensions.step - 1;
         const clickListener = event => {
           if (this.#dotsClickable && this.#onDotClick) {
             event.stopPropagation();
