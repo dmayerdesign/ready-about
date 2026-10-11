@@ -77,7 +77,7 @@ export async function useOnlySmoothSailingWeather(player) {
       subtitle: "Nothing happens.",
     };
     session.weatherCardsConfig = { smooth_sailing: { ...card, quantity: 1 } };
-    session.gameState.weatherCardDeck = [card];
+    session.gameState.weatherCardDeck = [card, card];
     await session.commit();
   });
 }

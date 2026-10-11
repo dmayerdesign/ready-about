@@ -48,8 +48,8 @@ test("separate Chromium and Firefox players converge on claims and turns", async
 
     await useOnlySmoothSailingWeather(chromiumPlayer);
     await Promise.all([
-      waitForGameState(chromiumPlayer, state => state.gameState.weatherCardDeck.length === 1, "weather is controlled"),
-      waitForGameState(firefoxPlayer, state => state.gameState.weatherCardDeck.length === 1, "weather update arrives"),
+      waitForGameState(chromiumPlayer, state => state.gameState.weatherCardDeck.length === 2, "weather is controlled"),
+      waitForGameState(firefoxPlayer, state => state.gameState.weatherCardDeck.length === 2, "weather update arrives"),
     ]);
 
     await chromiumPlayer.page.getByTestId("start-race").click();
@@ -112,11 +112,15 @@ test("separate Chromium and Firefox players converge on claims and turns", async
 
     await chromiumPlayer.page.getByTestId("end-turn").click();
     const playerTwoTurnStarted = state =>
-      state.activePlayerId === "player_2" && state.gameState.players.player_1.turnsCompleted === 1;
+      state.activePlayerId === "player_2" &&
+      state.gameState.players.player_1.turnsCompleted === 1 &&
+      state.gameState.weatherCardDiscard.length === 2 &&
+      !state.interactionsDisabled;
     await Promise.all([
       waitForGameState(chromiumPlayer, playerTwoTurnStarted, "player_1 end turn arrives"),
       waitForGameState(firefoxPlayer, playerTwoTurnStarted, "player_2 receives its turn"),
     ]);
+    await expect(firefoxPlayer.page.locator("#active-weather-card-container .weather-card")).toHaveCount(1);
 
     await firefoxPlayer.page.getByTestId("end-turn").click();
     const playerOneTurnResumed = state =>

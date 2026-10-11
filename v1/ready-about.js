@@ -432,6 +432,7 @@ export class ReadyAboutSession {
         return;
       }
       this.disableInteractions();
+      await this.commit();
       // Reset the previous active player
       const whoseTurnWasIt = this.activePlayerId;
       if (whoseTurnWasIt) {
@@ -458,8 +459,10 @@ export class ReadyAboutSession {
       }
       this.gameState.players[whoseTurnIsItNext].myTurn = true;
       await this.commit();
-      // Render
       this.render();
+      if (!this.myTurn) {
+        return;
+      }
       // "Draw" a weather card and resolve its effects
       await this.stateTransitions.DRAW_AND_RESOLVE_WEATHER();
       // Calculate the new move options
@@ -482,30 +485,18 @@ export class ReadyAboutSession {
       await this.commit();
       document.getElementById("active-weather-card-container").innerHTML = "";
       this.render();
-      await new Promise(resolve => {
-        setTimeout(() => {
-          // Animate the weather card being drawn via fromAnimations (from center of screen to final pos)
-          const actualCardWidthPx = document.querySelector(".weather-card")?.getBoundingClientRect()?.width || 200;
-          const actualCardHeightPx = document.querySelector(".weather-card")?.getBoundingClientRect()?.height || 300;
-          fromAnimations.push({
-            target: `.weather-card[data-id="${card.id}"]`,
-            options: {
-              duration: 2,
-              delay: 1,
-              ease: "power4.inOut",
-              // The center of the screen
-              // x: window.innerWidth / 2 - actualCardWidthPx / 2,
-              y: -window.innerHeight / 2 - actualCardHeightPx / 3,
-              zIndex: 100,
-              scale: 1.5,
-              onComplete: () => {
-                resolve();
-              },
-            },
-          });
-        });
+      const actualCardHeightPx = document.querySelector(".weather-card")?.getBoundingClientRect()?.height || 300;
+      fromAnimations.push({
+        target: `.weather-card[data-id="${card.id}"]`,
+        options: {
+          duration: 2,
+          delay: 1,
+          ease: "power4.inOut",
+          y: -window.innerHeight / 2 - actualCardHeightPx / 3,
+          zIndex: 100,
+          scale: 1.5,
+        },
       });
-      this.render();
 
       // Resolve its effects
       switch (card.id) {
@@ -936,12 +927,23 @@ export class ReadyAboutSession {
 
         this.render();
 
-        onSnapshot(doc(getFirestore(this.firebaseApp), "ready-about-sessions", this.id), snapshot => {
+        onSnapshot(doc(getFirestore(this.firebaseApp), "ready-about-sessions", this.id), async snapshot => {
           if (snapshot.exists()) {
+            const activePlayerIdBeforeHydration = this.activePlayerId;
+            const weatherCardsDrawnBeforeHydration = this.gameState.weatherCardDiscard.length;
             const data = snapshot.data();
             this.hydrateFromObject(data);
             this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
             this.render();
+            if (
+              activePlayerIdBeforeHydration !== this.activePlayerId &&
+              this.myTurn &&
+              this.gameState.weatherCardDiscard.length === weatherCardsDrawnBeforeHydration
+            ) {
+              await this.stateTransitions.DRAW_AND_RESOLVE_WEATHER();
+              await this.stateTransitions.RECALC_ACTIVE_PLAYER_MOVE_OPTIONS();
+              await this.enableInteractions();
+            }
           }
         });
       })();
